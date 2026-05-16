@@ -1,8 +1,10 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "../middleware/error.js";
 import { runMorningBriefFor } from "../automations/morning-brief.js";
+import { enqueueAutomation, scheduleCronAutomation } from "../automations/automation.service.js";
 
 export const automationsRouter: Router = Router();
 
@@ -24,15 +26,23 @@ automationsRouter.post(
   },
 );
 
-const triggerEnum = z.enum(["temporal", "event", "behavioral", "contextual", "manual"]);
+const triggerEnum = z.enum(["cron", "temporal", "event", "behavioral", "contextual", "manual"]);
 
 const createSchema = z.object({
   name: z.string().min(1),
+  description: z.string().optional(),
   triggerType: triggerEnum,
   triggerConfig: z.record(z.unknown()).default({}),
+  conditions: z.record(z.unknown()).nullable().optional(),
   actions: z.array(z.object({ type: z.string(), config: z.record(z.unknown()).default({}) })),
+  requiresConfirmation: z.boolean().default(false),
+  confirmationTimeout: z.number().int().positive().default(240),
   enabled: z.boolean().default(true),
 });
+
+function asJson(value: unknown): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}
 
 /** GET /v1/automations — todas as automações do usuário. */
 automationsRouter.get("/", async (req: Request, res: Response, next: NextFunction) => {
@@ -57,12 +67,19 @@ automationsRouter.post("/", async (req: Request, res: Response, next: NextFuncti
       data: {
         userId: req.user.id,
         name: body.name,
+        description: body.description ?? null,
         triggerType: body.triggerType,
-        triggerConfig: body.triggerConfig,
-        actions: body.actions,
+        triggerConfig: asJson(body.triggerConfig),
+        conditions: body.conditions ? asJson(body.conditions) : undefined,
+        actions: asJson(body.actions),
+        requiresConfirmation: body.requiresConfirmation,
+        confirmationTimeout: body.confirmationTimeout,
         enabled: body.enabled,
       },
     });
+    if (auto.enabled && (auto.triggerType === "cron" || auto.triggerType === "temporal")) {
+      await scheduleCronAutomation(auto.id);
+    }
     res.json({ ok: true, data: auto });
   } catch (err) {
     next(err);
@@ -77,10 +94,30 @@ automationsRouter.patch("/:id", async (req: Request, res: Response, next: NextFu
     const owned = await prisma.automation.findFirst({ where: { id, userId: req.user.id } });
     if (!owned) throw new ApiError(404, "NOT_FOUND", "Automação não encontrada.");
     const partial = createSchema.partial().parse(req.body);
+    const data: Prisma.AutomationUpdateInput = {
+      ...(partial.name !== undefined && { name: partial.name }),
+      ...(partial.description !== undefined && { description: partial.description }),
+      ...(partial.triggerType !== undefined && { triggerType: partial.triggerType }),
+      ...(partial.triggerConfig !== undefined && { triggerConfig: asJson(partial.triggerConfig) }),
+      ...(partial.conditions !== undefined && {
+        conditions: partial.conditions === null ? Prisma.JsonNull : asJson(partial.conditions),
+      }),
+      ...(partial.actions !== undefined && { actions: asJson(partial.actions) }),
+      ...(partial.requiresConfirmation !== undefined && {
+        requiresConfirmation: partial.requiresConfirmation,
+      }),
+      ...(partial.confirmationTimeout !== undefined && {
+        confirmationTimeout: partial.confirmationTimeout,
+      }),
+      ...(partial.enabled !== undefined && { enabled: partial.enabled }),
+    };
     const updated = await prisma.automation.update({
       where: { id },
-      data: partial,
+      data,
     });
+    if (updated.enabled && (updated.triggerType === "cron" || updated.triggerType === "temporal")) {
+      await scheduleCronAutomation(updated.id);
+    }
     res.json({ ok: true, data: updated });
   } catch (err) {
     next(err);
@@ -108,10 +145,8 @@ automationsRouter.post("/:id/trigger", async (req: Request, res: Response, next:
     const id = z.string().min(1).parse(req.params.id);
     const auto = await prisma.automation.findFirst({ where: { id, userId: req.user.id } });
     if (!auto) throw new ApiError(404, "NOT_FOUND", "Automação não encontrada.");
-    const log = await prisma.automationLog.create({
-      data: { automationId: id, status: "pending", result: { trigger: "manual" } },
-    });
-    res.json({ ok: true, data: { logId: log.id, automation: auto.name } });
+    await enqueueAutomation(id, "manual");
+    res.json({ ok: true, data: { queued: true, automation: auto.name } });
   } catch (err) {
     next(err);
   }

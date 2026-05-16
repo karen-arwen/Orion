@@ -3,10 +3,34 @@ import type {
   Automation,
   ChatRequest,
   ChatResponse,
+  ContentIdea,
+  ContentIdeaGenerateInput,
+  ContentIdeaInput,
+  ContentIdeaStatusInput,
   Integration,
   LessonLevel,
   LessonSession,
   LessonSessionSummary,
+  DocumentAnalysisRecord,
+  DriveDocumentFile,
+  EnergyLog,
+  EnergyLogInput,
+  EnergySummary,
+  FocusSession,
+  FocusSessionInput,
+  FocusSummary,
+  GameCatalogItem,
+  GameEntry,
+  GameEntryInput,
+  GameEntryUpdateInput,
+  GameShelfSummary,
+  HabitCreateInput,
+  HabitSummary,
+  HabitWithLogs,
+  SleepLog,
+  SleepLogInput,
+  SleepSummary,
+  UploadedDocumentInput,
   OrionMode,
   ProactiveAlert,
   Project,
@@ -193,5 +217,104 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input),
       }),
+  },
+  docs: {
+    driveFiles: (params: { query?: string; type?: string; max?: number } = {}) =>
+      request<DriveDocumentFile[]>("/m/docs/drive", { params }),
+    analyses: () => request<DocumentAnalysisRecord[]>("/m/docs/analyses"),
+    analyzeDrive: (input: {
+      fileId: string;
+      fileName: string;
+      mimeType: string;
+      instruction?: string;
+    }) =>
+      request<DocumentAnalysisRecord>("/m/docs/analyze-drive", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    analyzeUpload: (input: { file: UploadedDocumentInput; instruction?: string }) =>
+      request<DocumentAnalysisRecord>("/m/docs/analyze-upload", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+  },
+  health: {
+    energy: () => request<EnergySummary>("/m/health/energy"),
+    logEnergy: (input: EnergyLogInput) =>
+      request<EnergyLog>("/m/health/energy", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+  },
+  focus: {
+    summary: () => request<FocusSummary>("/m/focus/summary"),
+    start: (input: FocusSessionInput) =>
+      request<FocusSession>("/m/focus/sessions", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    complete: (id: string) =>
+      request<FocusSession>(`/m/focus/sessions/${id}/complete`, { method: "PATCH" }),
+    interrupt: (id: string) =>
+      request<FocusSession>(`/m/focus/sessions/${id}/interrupt`, { method: "PATCH" }),
+  },
+  habits: {
+    summary: () => request<HabitSummary>("/m/habits"),
+    create: (input: HabitCreateInput) =>
+      request<HabitWithLogs>("/m/habits", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    toggle: (id: string, date?: string) =>
+      request<HabitWithLogs>(`/m/habits/${id}/toggle`, {
+        method: "POST",
+        body: JSON.stringify({ date }),
+      }),
+    remove: (id: string) => request<{ id: string }>(`/m/habits/${id}`, { method: "DELETE" }),
+  },
+  sleep: {
+    summary: () => request<SleepSummary>("/m/sleep"),
+    create: (input: SleepLogInput) =>
+      request<SleepLog>("/m/sleep", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    remove: (id: string) => request<{ id: string }>(`/m/sleep/${id}`, { method: "DELETE" }),
+  },
+  creative: {
+    list: () => request<ContentIdea[]>("/m/creative"),
+    create: (input: ContentIdeaInput) =>
+      request<ContentIdea>("/m/creative", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    generate: (input: ContentIdeaGenerateInput) =>
+      request<ContentIdea[]>("/m/creative/generate", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    updateStatus: (id: string, input: ContentIdeaStatusInput) =>
+      request<ContentIdea>(`/m/creative/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    remove: (id: string) => request<{ id: string }>(`/m/creative/${id}`, { method: "DELETE" }),
+  },
+  gaming: {
+    list: () => request<GameEntry[]>("/m/gaming"),
+    summary: () => request<GameShelfSummary>("/m/gaming/summary"),
+    search: (query: string) => request<GameCatalogItem[]>("/m/gaming/search", { params: { query } }),
+    trending: () => request<GameCatalogItem[]>("/m/gaming/trending"),
+    create: (input: GameEntryInput) =>
+      request<GameEntry>("/m/gaming", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (id: string, input: GameEntryUpdateInput) =>
+      request<GameEntry>(`/m/gaming/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    remove: (id: string) => request<{ id: string }>(`/m/gaming/${id}`, { method: "DELETE" }),
   },
 };

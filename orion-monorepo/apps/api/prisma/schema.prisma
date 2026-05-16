@@ -33,6 +33,7 @@ enum PreferenceLayer {
 }
 
 enum TriggerType {
+  cron
   temporal
   event
   behavioral
@@ -45,6 +46,10 @@ enum AutomationStatus {
   failed
   pending
   skipped
+  pending_confirmation
+  confirmed
+  executed
+  dismissed
 }
 
 enum AlertPriority {
@@ -59,6 +64,8 @@ enum MemoryType {
   preference
   event
   feedback
+  project
+  relationship
 }
 
 enum IntegrationProvider {
@@ -119,6 +126,14 @@ model User {
   tasks           Task[]
   lessons         LessonSession[]
   patterns        UserPattern[]
+  documentAnalyses DocumentAnalysis[]
+  energyLogs      EnergyLog[]
+  focusSessions   FocusSession[]
+  habits          Habit[]
+  sleepLogs       SleepLog[]
+  healthSyncSources HealthSyncSource[]
+  contentIdeas    ContentIdea[]
+  gameEntries     GameEntry[]
 }
 
 model UserProfile {
@@ -202,19 +217,25 @@ model Integration {
 // ── AUTOMAÇÕES ──────────────────────────────────────────────────────
 
 model Automation {
-  id            String          @id @default(cuid())
-  userId        String
-  name          String
-  triggerType   TriggerType
-  triggerConfig Json            @default("{}")
-  actions       Json            @default("[]")
-  enabled       Boolean         @default(true)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  logs          AutomationLog[]
+  id                   String          @id @default(cuid())
+  userId               String
+  name                 String
+  description          String?
+  triggerType          TriggerType
+  triggerConfig        Json            @default("{}")
+  conditions           Json?
+  actions              Json            @default("[]")
+  requiresConfirmation Boolean         @default(false)
+  confirmationTimeout  Int             @default(240)
+  enabled              Boolean         @default(true)
+  lastTriggered        DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs                 AutomationLog[]
 
   @@index([userId])
+  @@index([enabled, triggerType])
 }
 
 model AutomationLog {
@@ -223,6 +244,8 @@ model AutomationLog {
   triggeredAt  DateTime         @default(now())
   status       AutomationStatus
   result       Json             @default("{}")
+  userResponse String?
+  executionMs  Int?
   automation   Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
 
   @@index([automationId])
@@ -284,10 +307,13 @@ model ProactiveAlert {
   action    String        @db.Text
   priority  AlertPriority @default(medium)
   dismissed Boolean       @default(false)
+  approved  Boolean       @default(false)
   createdAt DateTime      @default(now())
+  expiresAt DateTime?
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, dismissed])
+  @@index([userId, approved])
 }
 
 // ── LESSONS (Módulo Conhecimento) ───────────────────────────────────
@@ -320,6 +346,23 @@ model LessonMessage {
   @@index([sessionId, createdAt])
 }
 
+// ── DOCS (Google Drive + Uploads) ───────────────────────────────────
+
+model DocumentAnalysis {
+  id        String   @id @default(cuid())
+  userId    String
+  fileName  String
+  mimeType  String
+  source    String
+  fileId    String?
+  summary   Json
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, source])
+}
+
 // ── TASKS (Life OS) ─────────────────────────────────────────────────
 
 model Task {
@@ -342,6 +385,134 @@ model Task {
 
   @@index([userId, status])
   @@index([userId, scheduledFor])
+}
+
+// ── HEALTH ──────────────────────────────────────────────────────────
+
+model EnergyLog {
+  id        String   @id @default(cuid())
+  userId    String
+  value     Int
+  note      String?  @db.Text
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, value])
+}
+
+model FocusSession {
+  id            String    @id @default(cuid())
+  userId        String
+  duration      Int
+  breakMinutes  Int       @default(5)
+  completed     Boolean   @default(false)
+  interruptedAt DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, completed])
+}
+
+model Habit {
+  id         String     @id @default(cuid())
+  userId     String
+  name       String
+  frequency  String
+  color      String     @default("#00D4FF")
+  icon       String     @default("✓")
+  streak     Int        @default(0)
+  bestStreak Int        @default(0)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs       HabitLog[]
+
+  @@index([userId])
+}
+
+model HabitLog {
+  id        String   @id @default(cuid())
+  habitId   String
+  date      DateTime
+  completed Boolean  @default(true)
+  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, date])
+  @@index([habitId, date])
+}
+
+model SleepLog {
+  id        String   @id @default(cuid())
+  userId    String
+  bedTime   DateTime
+  wakeTime  DateTime
+  quality   Int      @default(3)
+  notes     String?  @db.Text
+  source    String   @default("manual")
+  externalId String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, bedTime])
+  @@index([userId, wakeTime])
+  @@index([userId, source, externalId])
+}
+
+model HealthSyncSource {
+  id           String   @id @default(cuid())
+  userId       String
+  provider     String
+  status       String   @default("ready")
+  deviceName   String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model ContentIdea {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  body        String    @db.Text
+  niche       String
+  format      String
+  status      String    @default("idea")
+  scheduledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, scheduledAt])
+}
+
+model GameEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  platform    String
+  status      String   @default("want")
+  genre       String?
+  hoursPlayed Float    @default(0)
+  rating      Int?
+  dealActive  Boolean  @default(false)
+  dealPrice   Float?
+  coverUrl    String?
+  rawgId      Int?
+  addedAt     DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, title])
+  @@index([userId, rawgId])
 }
 
 // ── USER PATTERNS (Memória mid-term) ────────────────────────────────

@@ -35,7 +35,14 @@ export function buildSystemPrompt(ctx: SystemPromptContext): string {
   // ── Bloco de DATA destacado pra evitar bug de "criou evento em 2025" ──
   // Vou repetir a data atual em MÚLTIPLOS formatos pra martelar no contexto.
   const now = new Date();
-  const isoToday = now.toISOString().slice(0, 10);
+  const localParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: profile.timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const localPart = (type: string): string => localParts.find((part) => part.type === type)?.value ?? "";
+  const isoToday = `${localPart("year")}-${localPart("month")}-${localPart("day")}`;
   const fullLocal = now.toLocaleString("pt-BR", {
     timeZone: profile.timezone,
     weekday: "long",
@@ -94,6 +101,13 @@ ${toolsLine}
 
 2. **Use ferramentas com julgamento.** Se a pergunta requer dados (emails, agenda, drive),
    chame as ferramentas. Não invente — sempre tem como verificar.
+   Para qualquer coisa atual fora de Gmail/Calendar/Drive (notícias, eventos, vagas,
+   redes sociais públicas, docs de libs, lançamentos, "pesquisa na internet"),
+   chame web_search quando disponível e cite as fontes/links. Se web_search não estiver
+   ativo, diga claramente que falta BRAVE_SEARCH_API_KEY.
+   Para pedidos de "em alta", "tendências", "lançamentos", "hoje", "esta semana",
+   filmes, séries ou jogos atuais: chame TMDB/RAWG quando disponíveis. Se a ferramenta
+   não estiver ativa, diga claramente qual chave/configuração falta.
 
 3. **Confirme ações irreversíveis.** Antes de gmail_send, gmail_reply ou calendar_create:
    MOSTRE o conteúdo final e pergunte "Posso enviar/criar?". Espere o "sim".

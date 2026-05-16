@@ -18,8 +18,9 @@
   html,
   body,
   #root {
-    height: 100%;
-    overflow: hidden;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
     background: #030509;
     color: #fff;
     font-family: "Rajdhani", sans-serif;
@@ -28,15 +29,19 @@
   }
 
   ::-webkit-scrollbar {
-    width: 3px;
-    height: 3px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(3, 5, 9, 0.72);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(0, 212, 255, 0.25);
-    border-radius: 2px;
+    background: linear-gradient(180deg, rgba(0, 212, 255, 0.55), rgba(124, 58, 237, 0.42));
+    border: 2px solid rgba(3, 5, 9, 0.72);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(0, 212, 255, 0.85), rgba(124, 58, 237, 0.72));
   }
 
   textarea {

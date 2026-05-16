@@ -32,6 +32,7 @@ const schema = z.object({
   // Trends — free APIs (cada uma com tier gratuito generoso)
   TMDB_API_KEY: z.string().optional(),
   RAWG_API_KEY: z.string().optional(),
+  BRAVE_SEARCH_API_KEY: z.string().optional(),
 
   // Embeddings — OpenAI text-embedding-3-small ($0.02/1M tokens)
   // Se vazio: memória funciona em modo fallback (sem busca semântica)

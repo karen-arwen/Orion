@@ -10,6 +10,15 @@ import {
   gmailReply,
   gmailSend,
 } from "../integrations/google-api.js";
+import {
+  rawgSearchGame,
+  rawgTrendingGames,
+  rawgUpcomingGames,
+  tmdbTrendingMovies,
+  tmdbTrendingShows,
+  tmdbUpcomingMovies,
+} from "../integrations/trends.js";
+import { braveWebSearch, type BraveFreshness } from "../integrations/web-search.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    Definição das ferramentas que o Claude pode chamar.
@@ -28,6 +37,11 @@ export interface ToolContext {
   gcalToken: string | null;
   gdriveToken: string | null;
   timezone: string;
+  trendsAvailable: {
+    tmdb: boolean;
+    rawg: boolean;
+  };
+  webSearchAvailable: boolean;
 }
 
 type ToolSchema = Anthropic.Tool;
@@ -193,6 +207,98 @@ export function getToolsForContext(ctx: ToolContext): ToolSchema[] {
     );
   }
 
+  if (ctx.webSearchAvailable) {
+    tools.push({
+      name: "web_search",
+      description:
+        "Pesquisa a internet em tempo real via Brave Search. Use para noticias, lancamentos, eventos, vagas, docs atuais, redes sociais publicas, tendencias gerais e qualquer pergunta que dependa do que esta acontecendo agora. Retorne sempre fontes e links relevantes.",
+      input_schema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Consulta objetiva. Inclua local e ano quando relevante." },
+          count: { type: "number", description: "Quantidade de resultados, 1-10. Padrao 5." },
+          freshness: {
+            type: "string",
+            enum: ["pd", "pw", "pm", "py"],
+            description: "Recencia opcional: pd=dia, pw=semana, pm=mes, py=ano.",
+          },
+        },
+        required: ["query"],
+      },
+    });
+  }
+
+  if (ctx.trendsAvailable.tmdb) {
+    tools.push(
+      {
+        name: "trends_movies",
+        description:
+          "Busca filmes em alta ou próximos lançamentos no TMDB. Use quando o usuário pedir tendências, lançamentos, recomendações atuais ou o que assistir.",
+        input_schema: {
+          type: "object",
+          properties: {
+            mode: {
+              type: "string",
+              enum: ["trending_day", "trending_week", "upcoming"],
+              description: "Tipo de busca. Padrão: trending_week.",
+            },
+            limit: { type: "number", description: "Quantidade de itens, 1-10. Padrão 5." },
+          },
+        },
+      },
+      {
+        name: "trends_series",
+        description:
+          "Busca séries em alta no TMDB. Use para tendências atuais de séries e recomendações contextuais.",
+        input_schema: {
+          type: "object",
+          properties: {
+            window: {
+              type: "string",
+              enum: ["day", "week"],
+              description: "Janela de tendência. Padrão: week.",
+            },
+            limit: { type: "number", description: "Quantidade de itens, 1-10. Padrão 5." },
+          },
+        },
+      },
+    );
+  }
+
+  if (ctx.trendsAvailable.rawg) {
+    tools.push(
+      {
+        name: "trends_games",
+        description:
+          "Busca jogos populares recentes ou próximos lançamentos via RAWG. Use quando o usuário pedir tendências, lançamentos ou jogos do momento.",
+        input_schema: {
+          type: "object",
+          properties: {
+            mode: {
+              type: "string",
+              enum: ["trending", "upcoming"],
+              description: "Tipo de busca. Padrão: trending.",
+            },
+            limit: { type: "number", description: "Quantidade de itens, 1-10. Padrão 5." },
+          },
+        },
+      },
+      {
+        name: "game_search",
+        description:
+          "Busca jogos por nome via RAWG. Use para builds, walkthroughs e contexto de um jogo específico antes de responder.",
+        input_schema: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Nome do jogo." },
+            limit: { type: "number", description: "Quantidade de itens, 1-10. Padrão 5." },
+          },
+          required: ["query"],
+        },
+      },
+    );
+  }
+
   return tools;
 }
 
@@ -201,6 +307,11 @@ export function getToolsForContext(ctx: ToolContext): ToolSchema[] {
 interface ExecResult {
   ok: boolean;
   result: string;
+}
+
+function clampLimit(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 5;
+  return Math.max(1, Math.min(10, Math.floor(value)));
 }
 
 /** Despacha uma tool_use call do Claude pra implementação real. */
@@ -368,6 +479,107 @@ export async function executeTool(
         if (!id) return { ok: false, result: "file_id obrigatório." };
         const text = await driveReadDoc(ctx.gdriveToken, id);
         return { ok: true, result: text || "(documento vazio)" };
+      }
+
+      case "web_search": {
+        if (!ctx.webSearchAvailable) return { ok: false, result: "BRAVE_SEARCH_API_KEY nao configurada." };
+        const query = typeof input.query === "string" ? input.query.trim() : "";
+        if (!query) return { ok: false, result: "query obrigatorio." };
+        const freshness =
+          input.freshness === "pd" || input.freshness === "pw" || input.freshness === "pm" || input.freshness === "py"
+            ? (input.freshness as BraveFreshness)
+            : undefined;
+        const results = await braveWebSearch({ query, count: clampLimit(input.count), freshness });
+        if (results.length === 0) return { ok: true, result: "Nenhum resultado web encontrado." };
+        return {
+          ok: true,
+          result: results
+            .map(
+              (item, i) =>
+                `${i + 1}. ${item.title}\n` +
+                `   Fonte: ${item.source ?? "web"}${item.age ? ` | ${item.age}` : ""}\n` +
+                `   URL: ${item.url}\n` +
+                `   ${item.description || "Sem descricao."}`,
+            )
+            .join("\n\n"),
+        };
+      }
+
+      case "trends_movies": {
+        if (!ctx.trendsAvailable.tmdb) return { ok: false, result: "TMDB_API_KEY não configurada." };
+        const limit = clampLimit(input.limit);
+        const mode = typeof input.mode === "string" ? input.mode : "trending_week";
+        const movies =
+          mode === "upcoming"
+            ? await tmdbUpcomingMovies(limit)
+            : await tmdbTrendingMovies(mode === "trending_day" ? "day" : "week", limit);
+        return {
+          ok: true,
+          result: movies
+            .map(
+              (m, i) =>
+                `${i + 1}. ${m.title} (${m.releaseDate || "sem data"})\n` +
+                `   Nota: ${m.voteAverage.toFixed(1)} | Popularidade: ${Math.round(m.popularity)}\n` +
+                `   ${m.overview || "Sem sinopse em pt-BR."}`,
+            )
+            .join("\n\n"),
+        };
+      }
+
+      case "trends_series": {
+        if (!ctx.trendsAvailable.tmdb) return { ok: false, result: "TMDB_API_KEY não configurada." };
+        const limit = clampLimit(input.limit);
+        const window = input.window === "day" ? "day" : "week";
+        const shows = await tmdbTrendingShows(window, limit);
+        return {
+          ok: true,
+          result: shows
+            .map(
+              (s, i) =>
+                `${i + 1}. ${s.name} (${s.firstAirDate || "sem data"})\n` +
+                `   Nota: ${s.voteAverage.toFixed(1)} | Popularidade: ${Math.round(s.popularity)}\n` +
+                `   ${s.overview || "Sem sinopse em pt-BR."}`,
+            )
+            .join("\n\n"),
+        };
+      }
+
+      case "trends_games": {
+        if (!ctx.trendsAvailable.rawg) return { ok: false, result: "RAWG_API_KEY não configurada." };
+        const limit = clampLimit(input.limit);
+        const games = input.mode === "upcoming" ? await rawgUpcomingGames(limit) : await rawgTrendingGames(limit);
+        return {
+          ok: true,
+          result: games
+            .map(
+              (g, i) =>
+                `${i + 1}. ${g.name} (${g.released || "sem data"})\n` +
+                `   Nota: ${g.rating.toFixed(1)} | Metacritic: ${g.metacritic ?? "n/d"}\n` +
+                `   Plataformas: ${g.platforms.slice(0, 5).join(", ") || "n/d"}\n` +
+                `   Gêneros: ${g.genres.slice(0, 5).join(", ") || "n/d"}`,
+            )
+            .join("\n\n"),
+        };
+      }
+
+      case "game_search": {
+        if (!ctx.trendsAvailable.rawg) return { ok: false, result: "RAWG_API_KEY não configurada." };
+        const query = typeof input.query === "string" ? input.query.trim() : "";
+        if (!query) return { ok: false, result: "query obrigatório." };
+        const games = await rawgSearchGame(query, clampLimit(input.limit));
+        if (games.length === 0) return { ok: true, result: "Nenhum jogo encontrado." };
+        return {
+          ok: true,
+          result: games
+            .map(
+              (g, i) =>
+                `${i + 1}. ${g.name} (${g.released || "sem data"})\n` +
+                `   Nota: ${g.rating.toFixed(1)} | Metacritic: ${g.metacritic ?? "n/d"}\n` +
+                `   Plataformas: ${g.platforms.slice(0, 5).join(", ") || "n/d"}\n` +
+                `   Gêneros: ${g.genres.slice(0, 5).join(", ") || "n/d"}`,
+            )
+            .join("\n\n"),
+        };
       }
 
       default:

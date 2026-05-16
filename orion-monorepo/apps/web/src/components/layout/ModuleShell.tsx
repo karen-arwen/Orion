@@ -52,6 +52,8 @@ export function ModuleShell({ icon, label, sub, color, children }: ModuleShellPr
         color: "#fff",
         fontFamily: "'Rajdhani', sans-serif",
         position: "relative",
+        overflowX: "hidden",
+        overflowY: "auto",
       }}
     >
       <Particles color={color} />
@@ -60,7 +62,7 @@ export function ModuleShell({ icon, label, sub, color, children }: ModuleShellPr
         style={{
           position: "relative",
           zIndex: 5,
-          padding: "28px 32px 14px",
+          padding: "clamp(18px, 3vw, 28px) clamp(16px, 4vw, 32px) 14px",
           borderBottom: `1px solid ${color}18`,
           background: "rgba(3,5,9,0.6)",
           backdropFilter: "blur(20px)",
@@ -95,12 +97,14 @@ export function ModuleShell({ icon, label, sub, color, children }: ModuleShellPr
             to="/"
             className="hud-label"
             style={{
-              padding: "8px 14px",
+              padding: "10px 16px",
               fontSize: 10,
               border: `1px solid ${color}30`,
               color: `${color}aa`,
               borderRadius: 6,
               textDecoration: "none",
+              boxShadow: `0 0 22px ${color}10`,
+              whiteSpace: "nowrap",
             }}
           >
             ← NEXUS
@@ -108,7 +112,18 @@ export function ModuleShell({ icon, label, sub, color, children }: ModuleShellPr
         </div>
       </div>
 
-      <div style={{ position: "relative", zIndex: 5, padding: "24px 32px" }}>{children}</div>
+      <div
+        style={{
+          position: "relative",
+          zIndex: 5,
+          padding: "clamp(18px, 3vw, 28px) clamp(14px, 4vw, 32px) clamp(42px, 6vw, 72px)",
+          width: "100%",
+          maxWidth: 1640,
+          margin: "0 auto",
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }

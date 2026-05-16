@@ -93,6 +93,7 @@ export const aiService = {
         tmdb: Boolean(env.TMDB_API_KEY),
         rawg: Boolean(env.RAWG_API_KEY),
       },
+      webSearchAvailable: Boolean(env.BRAVE_SEARCH_API_KEY),
     };
 
     // 3. Conversa
@@ -108,7 +109,7 @@ export const aiService = {
         return null;
       }),
       memoryService.getShortTerm(userId, conversation.id),
-      memoryService.getLongTermContext(userId),
+      memoryService.getLongTermContext(userId, message),
     ]);
 
     const brainContext = snapshot
@@ -123,6 +124,7 @@ export const aiService = {
     if (toolContext.gmailToken) activeTools.push("gmail (listar/ler/rascunhar/enviar/responder)");
     if (toolContext.gcalToken) activeTools.push("calendar (listar/criar)");
     if (toolContext.gdriveToken) activeTools.push("drive (buscar/ler docs)");
+    if (toolContext.webSearchAvailable) activeTools.push("web_search (internet em tempo real via Brave)");
     if (toolContext.trendsAvailable.tmdb) activeTools.push("trends_movies / trends_series (TMDB)");
     if (toolContext.trendsAvailable.rawg) activeTools.push("trends_games / game_search (RAWG)");
 
@@ -177,7 +179,7 @@ export const aiService = {
       conversationId: conversation.id,
       message: assistantMsg,
       toolResults: result.toolCalls.map((t) => ({
-        server: "google",
+        server: "orion",
         tool: t.name,
         result: t.ok ? "ok" : "error",
       })),

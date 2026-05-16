@@ -1,5 +1,7 @@
 import cron from "node-cron";
 import { runMorningBriefAll } from "./morning-brief.js";
+import { scheduleAllCronAutomations } from "./automation.service.js";
+import { startAutomationWorkers } from "./queues.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    Scheduler central das automações do O.R.I.O.N.
@@ -13,6 +15,11 @@ import { runMorningBriefAll } from "./morning-brief.js";
 ═══════════════════════════════════════════════════════════════════ */
 
 export function startScheduler(): void {
+  startAutomationWorkers();
+  void scheduleAllCronAutomations().catch((err) => {
+    console.warn("[scheduler] falha ao registrar automações cron:", (err as Error).message);
+  });
+
   // Morning Brief: 8:00 segunda-sexta (horário do servidor)
   cron.schedule(
     "0 8 * * 1-5",

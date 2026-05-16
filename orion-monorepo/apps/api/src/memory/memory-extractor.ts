@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
+import { memoryService, type MemoryKind } from "./memory.service.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    Memory Extractor — destila fatos persistentes de cada conversa.
@@ -18,7 +19,7 @@ import { prisma } from "../db/prisma.js";
 const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
 interface ExtractedMemory {
-  type: "fact" | "preference" | "event" | "feedback";
+  type: MemoryKind;
   content: string;
   importance: number;
 }
@@ -39,6 +40,8 @@ Tipos:
 - "preference": gosto/estilo ("prefere comunicação direta e curta")
 - "event": evento recorrente ou data importante ("aula de inglês quarta e sexta 8h")
 - "feedback": correção que o usuário deu sobre como interagir
+- "project": projeto, stack, objetivo ou decisão de produto relevante
+- "relationship": pessoa importante e contexto de relação
 
 FORMATO DE RESPOSTA — JSON puro, sem markdown, sem explicação:
 [{"type":"...", "content":"...", "importance":0.X}, ...]
@@ -81,7 +84,9 @@ function parseExtraction(raw: string): ExtractedMemory[] {
           typeof (m as ExtractedMemory).content === "string",
       )
       .map((m) => ({
-        type: ["fact", "preference", "event", "feedback"].includes(m.type) ? m.type : "fact",
+        type: ["fact", "preference", "event", "feedback", "project", "relationship"].includes(m.type)
+          ? m.type
+          : "fact",
         content: String(m.content).slice(0, 500),
         importance: Math.max(0, Math.min(1, Number(m.importance) || 0.5)),
       }))
@@ -130,15 +135,11 @@ export async function extractAndSaveMemories(opts: {
     const memories = parseExtraction(text);
     if (memories.length === 0) return;
 
-    await prisma.memory.createMany({
-      data: memories.map((m) => ({
-        userId: opts.userId,
-        type: m.type,
-        content: m.content,
-        importance: m.importance,
-        embedding: [],
-      })),
-    });
+    await Promise.all(
+      memories.map((memory) =>
+        memoryService.remember(opts.userId, memory.type, memory.content, memory.importance),
+      ),
+    );
 
     console.log(
       `[memory] +${memories.length} pra ${opts.userId}:`,

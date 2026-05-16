@@ -65,6 +65,12 @@ interface GmailRawMessage {
   };
 }
 
+interface GmailMessagePart {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailMessagePart[];
+}
+
 interface GmailListResponse {
   messages?: Array<{ id: string; threadId: string }>;
   nextPageToken?: string;
@@ -123,7 +129,7 @@ export async function gmailRead(
     payload?: {
       headers?: Array<{ name: string; value: string }>;
       body?: { data?: string };
-      parts?: Array<{ mimeType?: string; body?: { data?: string }; parts?: FullMessage["payload"]["parts"] }>;
+      parts?: GmailMessagePart[];
     };
   }
   const msg = await request<FullMessage>(`${GMAIL}/messages/${messageId}`, {
@@ -132,7 +138,7 @@ export async function gmailRead(
   });
 
   // Extrai o body — Gmail aninha parts; pegamos o text/plain mais externo
-  const findText = (parts?: FullMessage["payload"]["parts"]): string => {
+  const findText = (parts?: GmailMessagePart[]): string => {
     if (!parts) return "";
     for (const p of parts) {
       if (p.mimeType === "text/plain" && p.body?.data) {
@@ -368,4 +374,45 @@ export async function driveReadDoc(accessToken: string, fileId: string): Promise
   }
   const text = await res.text();
   return text.slice(0, 4000);
+}
+
+export async function driveRecent(
+  accessToken: string,
+  opts: { mimePrefix?: string; maxResults?: number } = {},
+): Promise<DriveFileSummary[]> {
+  const q = opts.mimePrefix ? `mimeType contains '${opts.mimePrefix.replace(/'/g, "\\'")}'` : undefined;
+  const data = await request<DriveListResponse>(`${DRIVE}/files`, {
+    accessToken,
+    query: {
+      q,
+      pageSize: opts.maxResults ?? 20,
+      orderBy: "modifiedTime desc",
+      fields: "files(id,name,mimeType,modifiedTime,webViewLink)",
+    },
+  });
+  return data.files ?? [];
+}
+
+export async function driveReadFileText(
+  accessToken: string,
+  fileId: string,
+  mimeType: string,
+): Promise<string> {
+  const exportable: Record<string, string> = {
+    "application/vnd.google-apps.document": "text/plain",
+    "application/vnd.google-apps.spreadsheet": "text/csv",
+    "application/vnd.google-apps.presentation": "text/plain",
+  };
+  const exportMime = exportable[mimeType];
+  const url = exportMime
+    ? `${DRIVE}/files/${fileId}/export?mimeType=${encodeURIComponent(exportMime)}`
+    : `${DRIVE}/files/${fileId}?alt=media`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Drive read ${res.status}: ${await res.text()}`);
+  }
+  const text = await res.text();
+  return text.slice(0, 16000);
 }

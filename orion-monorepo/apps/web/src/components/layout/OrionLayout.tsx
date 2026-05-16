@@ -33,6 +33,13 @@ const MODULE_ROUTES: Partial<Record<string, string>> = {
   life: "/m/life",
   know: "/m/know",
   career: "/m/career",
+  docs: "/m/docs",
+  health: "/m/health",
+  focus: "/m/focus",
+  habit: "/m/habits",
+  sleep: "/m/sleep",
+  creative: "/m/creative",
+  gaming: "/m/gaming",
 };
 
 export function OrionLayout(): JSX.Element {

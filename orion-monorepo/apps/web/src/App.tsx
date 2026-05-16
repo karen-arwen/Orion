@@ -8,6 +8,13 @@ import { AgendaPage } from "./pages/modules/AgendaPage.js";
 import { LifePage } from "./pages/modules/LifePage.js";
 import { KnowPage } from "./pages/modules/KnowPage.js";
 import { CareerPage } from "./pages/modules/CareerPage.js";
+import { DocsPage } from "./pages/modules/DocsPage.js";
+import { HealthPage } from "./pages/modules/HealthPage.js";
+import { FocusPage } from "./pages/modules/FocusPage.js";
+import { HabitsPage } from "./pages/modules/HabitsPage.js";
+import { SleepPage } from "./pages/modules/SleepPage.js";
+import { CreativePage } from "./pages/modules/CreativePage.js";
+import { GamingPage } from "./pages/modules/GamingPage.js";
 
 /** Wrapper genérico pra rotas autenticadas — evita boilerplate repetido. */
 function Authed({ children }: { children: JSX.Element }): JSX.Element {
@@ -43,6 +50,13 @@ export function App(): JSX.Element {
       <Route path="/m/life" element={<Authed><LifePage /></Authed>} />
       <Route path="/m/know" element={<Authed><KnowPage /></Authed>} />
       <Route path="/m/career" element={<Authed><CareerPage /></Authed>} />
+      <Route path="/m/docs" element={<Authed><DocsPage /></Authed>} />
+      <Route path="/m/health" element={<Authed><HealthPage /></Authed>} />
+      <Route path="/m/focus" element={<Authed><FocusPage /></Authed>} />
+      <Route path="/m/habits" element={<Authed><HabitsPage /></Authed>} />
+      <Route path="/m/sleep" element={<Authed><SleepPage /></Authed>} />
+      <Route path="/m/creative" element={<Authed><CreativePage /></Authed>} />
+      <Route path="/m/gaming" element={<Authed><GamingPage /></Authed>} />
       <Route path="/*" element={<Authed><OrionLayout /></Authed>} />
     </Routes>
   );

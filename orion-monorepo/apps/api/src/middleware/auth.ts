@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { clerkMiddleware, getAuth, clerkClient } from "@clerk/express";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "./error.js";
+import { createDefaultAutomationsForUser } from "../automations/automation.service.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    Auth Clerk:
@@ -60,6 +61,7 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
           profile: { create: {} },
         },
       });
+      await createDefaultAutomationsForUser(user.id);
     } else if (user.name === "Operador" || user.email.endsWith("@orion.local")) {
       // Sincroniza usuários antigos provisionados antes do hotfix
       const profile = await fetchClerkProfile();

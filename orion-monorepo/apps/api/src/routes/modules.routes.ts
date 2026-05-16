@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "../middleware/error.js";
@@ -25,6 +26,11 @@ modulesRouter.get("/active", async (req: Request, res: Response, next: NextFunct
 });
 
 const enableSchema = z.object({ enabled: z.boolean() });
+const configSchema = z.record(z.unknown()).default({});
+
+function asJson(value: unknown): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}
 
 /** POST /v1/modules/:id/enable — ativa ou desativa um módulo. */
 modulesRouter.post("/:id/enable", async (req: Request, res: Response, next: NextFunction) => {
@@ -53,11 +59,11 @@ modulesRouter.patch("/:id/config", async (req: Request, res: Response, next: Nex
     if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
     const moduleId = req.params.id;
     if (!moduleId) throw new ApiError(400, "BAD_REQUEST", "ID do módulo obrigatório.");
-    const config = req.body as Record<string, unknown>;
+    const config = configSchema.parse(req.body);
     const um = await prisma.userModule.upsert({
       where: { userId_moduleId: { userId: req.user.id, moduleId } },
-      create: { userId: req.user.id, moduleId, enabled: false, config },
-      update: { config },
+      create: { userId: req.user.id, moduleId, enabled: false, config: asJson(config) },
+      update: { config: asJson(config) },
     });
     res.json({ ok: true, data: um });
   } catch (err) {

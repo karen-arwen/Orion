@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
+import type { EnergyLevel, Priority } from "@orion/types";
 import { ApiError } from "../../middleware/error.js";
 import {
   createTask,
@@ -25,6 +26,16 @@ const createSchema = z.object({
 });
 
 const updateSchema = createSchema.partial().extend({ id: z.string().min(1) });
+
+function normalizeTaskInput<T extends { energy?: number; priority?: number }>(
+  input: T,
+): Omit<T, "energy" | "priority"> & { energy?: EnergyLevel; priority?: Priority } {
+  return {
+    ...input,
+    ...(input.energy !== undefined && { energy: input.energy as EnergyLevel }),
+    ...(input.priority !== undefined && { priority: input.priority as Priority }),
+  };
+}
 
 /** GET /v1/m/life — tarefas ativas (todo + doing) */
 lifeRouter.get("/", async (req: Request, res: Response, next: NextFunction) => {
@@ -53,7 +64,7 @@ lifeRouter.post("/", async (req: Request, res: Response, next: NextFunction) => 
   try {
     if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
     const input = createSchema.parse(req.body);
-    const t = await createTask(req.user.id, input);
+    const t = await createTask(req.user.id, normalizeTaskInput(input));
     res.json({ ok: true, data: t });
   } catch (err) {
     next(err);
@@ -67,7 +78,7 @@ lifeRouter.patch("/:id", async (req: Request, res: Response, next: NextFunction)
     const id = req.params.id;
     if (!id) throw new ApiError(400, "BAD_REQUEST", "ID obrigatório.");
     const input = updateSchema.parse({ ...req.body, id });
-    const t = await updateTask(req.user.id, input);
+    const t = await updateTask(req.user.id, normalizeTaskInput(input));
     res.json({ ok: true, data: t });
   } catch (err) {
     next(err);

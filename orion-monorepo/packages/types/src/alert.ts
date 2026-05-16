@@ -11,5 +11,7 @@ export interface ProactiveAlert {
   action: string;
   priority: AlertPriority;
   dismissed: boolean;
+  approved: boolean;
   createdAt: string;
+  expiresAt: string | null;
 }
