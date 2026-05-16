@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: orion_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: orion
+      POSTGRES_PASSWORD: orion_dev
+      POSTGRES_DB: orion
+    ports:
+      # 5433 no host (PC) -> 5432 dentro do container.
+      # Usamos 5433 pra não conflitar com outro Postgres já instalado na máquina.
+      - "5433:5432"
+    volumes:
+      - orion_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orion -d orion"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: orion_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - orion_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  orion_pgdata:
+  orion_redisdata:

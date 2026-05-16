@@ -1,0 +1,42 @@
+{
+  "name": "orion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "O.R.I.O.N — Omni-Responsive Intelligent Operating Nexus. Sistema operacional de vida com IA.",
+  "author": "Karen Arwen",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:*",
+    "dev:web": "npm run dev --workspace apps/web",
+    "dev:api": "npm run dev --workspace apps/api",
+    "build": "npm-run-all --serial build:types build:api build:web",
+    "build:types": "npm run build --workspace packages/types",
+    "build:api": "npm run build --workspace apps/api",
+    "build:web": "npm run build --workspace apps/web",
+    "typecheck": "npm-run-all --parallel typecheck:*",
+    "typecheck:web": "npm run typecheck --workspace apps/web",
+    "typecheck:api": "npm run typecheck --workspace apps/api",
+    "typecheck:types": "npm run typecheck --workspace packages/types",
+    "lint": "eslint . --ext .ts,.tsx",
+    "db:push": "npm run db:push --workspace apps/api",
+    "db:migrate": "npm run db:migrate --workspace apps/api",
+    "db:studio": "npm run db:studio --workspace apps/api",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "clean": "rimraf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "npm-run-all": "^4.1.5",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.4.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

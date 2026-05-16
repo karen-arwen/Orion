@@ -1,0 +1,20 @@
+[
+  {
+    "provider": "gmail",
+    "accessToken": "ya29.COLE_SEU_ACCESS_TOKEN_AQUI",
+    "refreshToken": "1//COLE_SEU_REFRESH_TOKEN_AQUI",
+    "scopes": ["https://www.googleapis.com/auth/gmail.modify"]
+  },
+  {
+    "provider": "gcal",
+    "accessToken": "ya29.COLE_SEU_ACCESS_TOKEN_AQUI",
+    "refreshToken": "1//COLE_SEU_REFRESH_TOKEN_AQUI",
+    "scopes": ["https://www.googleapis.com/auth/calendar"]
+  },
+  {
+    "provider": "gdrive",
+    "accessToken": "ya29.COLE_SEU_ACCESS_TOKEN_AQUI",
+    "refreshToken": "1//COLE_SEU_REFRESH_TOKEN_AQUI",
+    "scopes": ["https://www.googleapis.com/auth/drive.readonly"]
+  }
+]
