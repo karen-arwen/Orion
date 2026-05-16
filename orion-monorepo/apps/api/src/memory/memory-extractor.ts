@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
+import { embedBatch } from "../embeddings/openai.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    Memory Extractor — destila fatos persistentes de cada conversa.
@@ -130,13 +131,17 @@ export async function extractAndSaveMemories(opts: {
     const memories = parseExtraction(text);
     if (memories.length === 0) return;
 
+    // Gera embeddings em batch — best-effort.
+    // Se OPENAI_API_KEY ausente, salva com [] e cai no fallback de importance.
+    const embeddings = await embedBatch(memories.map((m) => m.content));
+
     await prisma.memory.createMany({
-      data: memories.map((m) => ({
+      data: memories.map((m, i) => ({
         userId: opts.userId,
         type: m.type,
         content: m.content,
         importance: m.importance,
-        embedding: [],
+        embedding: embeddings[i] ?? [],
       })),
     });
 
