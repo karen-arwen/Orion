@@ -5,13 +5,56 @@ import { ApiError } from "../middleware/error.js";
 
 export const alertsRouter: Router = Router();
 
-/** GET /v1/alerts — alertas ativos (não dismissados). */
+/** Filtragem por modo: SILENCIOSO=só high, NORMAL=med+high, STARK=todos */
+const PRIORITY_BY_MODE: Record<string, Array<"low" | "medium" | "high" | "critical">> = {
+  SILENCIOSO: ["high", "critical"],
+  NORMAL: ["medium", "high", "critical"],
+  STARK: ["low", "medium", "high", "critical"],
+};
+
+const MAX_VISIBLE = 5;
+
+/** GET /v1/alerts — alertas ativos filtrados por modo + cap em 5. */
 alertsRouter.get("/", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { mode: true },
+    });
+    const mode = user?.mode ?? "NORMAL";
+    const allowedPriorities = PRIORITY_BY_MODE[mode] ?? PRIORITY_BY_MODE.NORMAL ?? [];
+
+    const all = await prisma.proactiveAlert.findMany({
+      where: {
+        userId: req.user.id,
+        dismissed: false,
+        priority: { in: allowedPriorities },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      orderBy: [
+        // Pri high primeiro, depois mais recentes
+        { priority: "desc" },
+        { createdAt: "desc" },
+      ],
+      take: MAX_VISIBLE,
+    });
+
+    res.json({ ok: true, data: all });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /v1/alerts/all — sem filtragem (debug / overview) */
+alertsRouter.get("/all", async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
     const list = await prisma.proactiveAlert.findMany({
       where: { userId: req.user.id, dismissed: false },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
+      take: 50,
     });
     res.json({ ok: true, data: list });
   } catch (err) {
@@ -19,7 +62,7 @@ alertsRouter.get("/", async (req: Request, res: Response, next: NextFunction) =>
   }
 });
 
-/** POST /v1/alerts/:id/dismiss — ignora um alerta. */
+/** POST /v1/alerts/:id/dismiss — ignora (feedback negativo implícito). */
 alertsRouter.post("/:id/dismiss", async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
@@ -33,14 +76,17 @@ alertsRouter.post("/:id/dismiss", async (req: Request, res: Response, next: Next
   }
 });
 
-/** POST /v1/alerts/:id/approve — marca como aprovado (também marca dismissed). */
+/** POST /v1/alerts/:id/approve — marca aprovado + retorna action pra mandar no chat. */
 alertsRouter.post("/:id/approve", async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
     const id = z.string().min(1).parse(req.params.id);
     const owned = await prisma.proactiveAlert.findFirst({ where: { id, userId: req.user.id } });
     if (!owned) throw new ApiError(404, "NOT_FOUND", "Alerta não encontrado.");
-    await prisma.proactiveAlert.update({ where: { id }, data: { dismissed: true } });
+    await prisma.proactiveAlert.update({
+      where: { id },
+      data: { dismissed: true, approved: true },
+    });
     res.json({ ok: true, data: { id, action: owned.action } });
   } catch (err) {
     next(err);

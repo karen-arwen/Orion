@@ -5,16 +5,25 @@ import { callClaude } from "./claude.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { memoryService } from "../memory/memory.service.js";
 import { extractAndSaveMemories } from "../memory/memory-extractor.js";
+import { searchRelevantMemories, renderMemoriesForPrompt } from "../memory/long-term.service.js";
+import {
+  getUserPatterns,
+  recomputeModuleUsage,
+  renderPatternsForPrompt,
+} from "../memory/mid-term.service.js";
 import { tryEnsureFreshAccessToken } from "../integrations/token-manager.js";
 import { captureBrainSnapshot, renderBrainContext } from "../brain/context.service.js";
 import { getToolsForContext, type ToolContext } from "./tools.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    AI service — orquestra:
-   • Brain context (awareness fresco)
-   • Memória (curta no Redis, longa no Postgres)
-   • Tools (Gmail / Calendar / Drive via REST)
-   • Extração de memórias (fire-and-forget após responder)
+   • Brain context (awareness fresco do estado do mundo)
+   • Memória 3 camadas:
+       SHORT (Redis): últimas 20 msgs da sessão atual
+       MID (Postgres): padrões aprendidos do usuário (UserPattern)
+       LONG (Postgres+embeddings): top 5 memórias semanticamente relevantes
+   • Tools (Gmail / Calendar / Drive / Trends via REST)
+   • Extração de memórias + recompute de patterns (fire-and-forget)
 ═══════════════════════════════════════════════════════════════════ */
 
 export interface ProcessChatInput {
@@ -93,6 +102,7 @@ export const aiService = {
         tmdb: Boolean(env.TMDB_API_KEY),
         rawg: Boolean(env.RAWG_API_KEY),
       },
+      webSearchAvailable: Boolean(env.BRAVE_SEARCH_API_KEY),
     };
 
     // 3. Conversa
@@ -101,19 +111,34 @@ export const aiService = {
       : await prisma.conversation.create({ data: { userId, moduleId: module ?? null } });
     if (!conversation) throw new Error("Conversa não encontrada");
 
-    // 4. Coleta paralela: brain snapshot, histórico curto, contexto longo
-    const [snapshot, shortHistory, longContext] = await Promise.all([
+    // 4. Coleta paralela: brain snapshot + 3 camadas de memória.
+    //    SHORT (Redis): histórico curto da sessão.
+    //    LONG (embeddings): top 5 memórias semanticamente relacionadas à mensagem.
+    //    MID (patterns): hábitos de uso aprendidos.
+    const [snapshot, shortHistory, relevantMemories, patterns] = await Promise.all([
       captureBrainSnapshot(userId).catch((err) => {
         console.warn("[brain] falhou:", (err as Error).message);
         return null;
       }),
       memoryService.getShortTerm(userId, conversation.id),
-      memoryService.getLongTermContext(userId),
+      searchRelevantMemories(userId, message, 5).catch((err) => {
+        console.warn("[memory:long] falhou:", (err as Error).message);
+        return [];
+      }),
+      getUserPatterns(userId).catch(() => []),
     ]);
 
     const brainContext = snapshot
       ? renderBrainContext(snapshot)
       : `Hora local: ${new Date().toLocaleString("pt-BR", { timeZone: profile.timezone })}`;
+
+    const memoryContext = [
+      "## Memórias relevantes pra esta mensagem:",
+      renderMemoriesForPrompt(relevantMemories),
+      "",
+      "## Padrões aprendidos sobre você:",
+      renderPatternsForPrompt(patterns),
+    ].join("\n");
 
     const userMsg: ChatMessage = { role: "user", content: message };
     const fullHistory: ChatMessage[] = [...shortHistory, userMsg];
@@ -125,13 +150,14 @@ export const aiService = {
     if (toolContext.gdriveToken) activeTools.push("drive (buscar/ler docs)");
     if (toolContext.trendsAvailable.tmdb) activeTools.push("trends_movies / trends_series (TMDB)");
     if (toolContext.trendsAvailable.rawg) activeTools.push("trends_games / game_search (RAWG)");
+    if (toolContext.webSearchAvailable) activeTools.push("web_search (Brave — busca real-time)");
 
     const systemPrompt = buildSystemPrompt({
       profile,
       mode: profile.mode,
       activeTools,
       brainContext,
-      memoryContext: longContext || undefined,
+      memoryContext,
     });
 
     // 6. Chama Claude (com tool loop)
@@ -166,12 +192,16 @@ export const aiService = {
     await memoryService.pushShortTerm(userId, conversation.id, userMsg);
     await memoryService.pushShortTerm(userId, conversation.id, assistantMsg);
 
-    // 8. Extração de memórias — fire-and-forget (não bloqueia a resposta)
+    // 8. Extração de memórias + recompute de patterns — fire-and-forget.
     void extractAndSaveMemories({
       userId,
       userMessage: message,
       assistantMessage: assistantMsg.content,
     });
+    // Recompute baixa frequência (~10% das conversas) pra evitar custo
+    if (Math.random() < 0.1) {
+      void recomputeModuleUsage(userId).catch(() => undefined);
+    }
 
     return {
       conversationId: conversation.id,

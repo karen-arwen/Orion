@@ -37,6 +37,10 @@ const schema = z.object({
   // Se vazio: memória funciona em modo fallback (sem busca semântica)
   OPENAI_API_KEY: z.string().optional(),
 
+  // Brave Search — 2000 queries/mês free, ótima qualidade
+  // Se vazio: tool web_search não é oferecida ao Claude
+  BRAVE_SEARCH_API_KEY: z.string().optional(),
+
   JWT_SECRET: z.string().min(8).default("orion-dev-secret-trocar-em-prod"),
 });
 

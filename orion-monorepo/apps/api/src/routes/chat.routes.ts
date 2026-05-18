@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { aiService } from "../ai/ai.service.js";
+import { streamChat } from "../ai/ai-stream.service.js";
 import { memoryService } from "../memory/memory.service.js";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "../middleware/error.js";
@@ -20,6 +21,21 @@ chatRouter.post("/", async (req: Request, res: Response, next: NextFunction) => 
     const body = sendSchema.parse(req.body);
     const result = await aiService.chat({ userId: req.user.id, ...body });
     res.json({ ok: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /v1/chat/stream — versão streaming (SSE token-a-token).
+ * Se a IA precisar chamar ferramenta, emite evento "fallback_to_tools"
+ * e o frontend refaz a mesma mensagem via POST /v1/chat normal.
+ */
+chatRouter.post("/stream", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
+    const body = sendSchema.parse(req.body);
+    await streamChat({ userId: req.user.id, ...body, res });
   } catch (err) {
     next(err);
   }

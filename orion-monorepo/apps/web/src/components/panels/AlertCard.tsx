@@ -1,4 +1,4 @@
-import type { ProactiveAlert } from "@orion/types";
+import type { ProactiveAlert, AlertPriority } from "@orion/types";
 
 interface AlertCardProps {
   alert: ProactiveAlert;
@@ -6,25 +6,78 @@ interface AlertCardProps {
   onDismiss: () => void;
 }
 
+const PRIORITY_META: Record<AlertPriority, { label: string; glow: string }> = {
+  low: { label: "LOW", glow: "" },
+  medium: { label: "MED", glow: "" },
+  high: { label: "HIGH", glow: " · pulse" },
+  critical: { label: "CRIT", glow: " · pulse" },
+};
+
 export function AlertCard({ alert, onApprove, onDismiss }: AlertCardProps): JSX.Element {
+  const meta = PRIORITY_META[alert.priority] ?? PRIORITY_META.medium;
+  const isHigh = alert.priority === "high" || alert.priority === "critical";
+
   return (
     <div
       style={{
         padding: "11px 13px",
         marginBottom: 7,
-        background: `linear-gradient(135deg, ${alert.color}10, transparent)`,
-        border: `1px solid ${alert.color}28`,
+        background: `linear-gradient(135deg, ${alert.color}${isHigh ? "1a" : "10"}, transparent)`,
+        border: `1px solid ${alert.color}${isHigh ? "55" : "28"}`,
+        borderLeft: `3px solid ${alert.color}`,
         borderRadius: 8,
+        boxShadow: isHigh ? `0 0 14px ${alert.color}22` : "none",
         animation: "fadeUp 0.3s ease",
       }}
     >
       <div style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
-        <span style={{ fontSize: 15, color: alert.color, marginTop: 1 }}>{alert.icon}</span>
-        <div style={{ flex: 1 }}>
-          <div className="hud-label" style={{ fontSize: 10, color: alert.color, marginBottom: 3 }}>
-            {alert.title}
+        <span
+          style={{
+            fontSize: 15,
+            color: alert.color,
+            marginTop: 1,
+            filter: isHigh ? `drop-shadow(0 0 6px ${alert.color})` : "none",
+          }}
+        >
+          {alert.icon}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 3,
+            }}
+          >
+            <span
+              className="hud-label"
+              style={{
+                fontSize: 7,
+                padding: "1px 5px",
+                background: `${alert.color}20`,
+                border: `1px solid ${alert.color}40`,
+                color: alert.color,
+                borderRadius: 3,
+              }}
+            >
+              {meta.label}
+            </span>
+            <span
+              className="hud-label"
+              style={{ fontSize: 10, color: alert.color, flex: 1, minWidth: 0 }}
+            >
+              {alert.title}
+            </span>
           </div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.44)", lineHeight: 1.5, marginBottom: 8 }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "rgba(255,255,255,0.55)",
+              lineHeight: 1.5,
+              marginBottom: 8,
+            }}
+          >
             {alert.text}
           </div>
           <div style={{ display: "flex", gap: 5 }}>

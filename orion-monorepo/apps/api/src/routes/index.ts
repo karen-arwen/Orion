@@ -13,6 +13,14 @@ import { agendaRouter } from "./m/agenda.routes.js";
 import { lifeRouter } from "./m/life.routes.js";
 import { knowRouter } from "./m/know.routes.js";
 import { careerRouter } from "./m/career.routes.js";
+import { docsRouter } from "./m/docs.routes.js";
+import { healthRouter } from "./m/health.routes.js";
+import { focusRouter } from "./m/focus.routes.js";
+import { habitsRouter } from "./m/habits.routes.js";
+import { creativeRouter } from "./m/creative.routes.js";
+import { gamingRouter } from "./m/gaming.routes.js";
+import { newsRouter } from "./m/news.routes.js";
+import { sleepRouter } from "./m/sleep.routes.js";
 
 /**
  * Roteador principal /v1.
@@ -47,3 +55,13 @@ router.use("/m/agenda", agendaRouter);
 router.use("/m/life", lifeRouter);
 router.use("/m/know", knowRouter);
 router.use("/m/career", careerRouter);
+
+// ── Módulos Fase 2 ──────────────────────────────────────────────
+router.use("/m/docs", docsRouter);
+router.use("/m/health", healthRouter);
+router.use("/m/focus", focusRouter);
+router.use("/m/habits", habitsRouter);
+router.use("/m/creative", creativeRouter);
+router.use("/m/gaming", gamingRouter);
+router.use("/m/news", newsRouter);
+router.use("/m/sleep", sleepRouter);

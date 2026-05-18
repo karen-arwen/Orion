@@ -6,6 +6,9 @@ import { env } from "./config/env.js";
 import { router } from "./routes/index.js";
 import { errorHandler } from "./middleware/error.js";
 import { startScheduler } from "./automations/scheduler.js";
+import { startWorkers } from "./queues/workers.js";
+import { registerRepeatingJobs } from "./queues/index.js";
+import { rehydrateRepeatingJobs } from "./automations/templates.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    O.R.I.O.N · API server
@@ -49,7 +52,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   errorHandler(err, req, res, next);
 });
 
-app.listen(env.PORT, () => {
+app.listen(env.PORT, async () => {
   console.log(`
 ╔════════════════════════════════════════════════════╗
 ║  ◉  O.R.I.O.N · API ONLINE                         ║
@@ -59,5 +62,13 @@ app.listen(env.PORT, () => {
 ║  Modelo: ${env.ANTHROPIC_MODEL.padEnd(42)}║
 ╚════════════════════════════════════════════════════╝
 `);
-  startScheduler();
+  // Schedulers e workers — boot em sequência tolerante a falha
+  try {
+    startScheduler();
+    startWorkers();
+    await registerRepeatingJobs();
+    await rehydrateRepeatingJobs();
+  } catch (err) {
+    console.error("[boot] falha ao iniciar workers:", (err as Error).message);
+  }
 });

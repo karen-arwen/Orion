@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { clerkMiddleware, getAuth, clerkClient } from "@clerk/express";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "./error.js";
+import { seedDefaultAutomations } from "../automations/templates.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    Auth Clerk:
@@ -59,6 +60,10 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
           avatar: profile.avatar,
           profile: { create: {} },
         },
+      });
+      // Primeiro login: seed das 7 automações pré-configuradas (idempotente, async)
+      void seedDefaultAutomations(user.id).catch((err) => {
+        console.warn("[seed] automações default falharam:", (err as Error).message);
       });
     } else if (user.name === "Operador" || user.email.endsWith("@orion.local")) {
       // Sincroniza usuários antigos provisionados antes do hotfix
