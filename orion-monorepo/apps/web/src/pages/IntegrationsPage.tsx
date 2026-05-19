@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { Integration } from "@orion/types";
 import { NeuralRing } from "../components/visual/NeuralRing.js";
-import { StatusDot } from "../components/visual/StatusDot.js";
 import { api, ApiClientError } from "../lib/api.js";
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -90,7 +89,23 @@ export function IntegrationsPage(): JSX.Element {
   };
 
   const byProvider = new Map(integrations.map((i) => [i.provider, i]));
-  const anyConnected = integrations.some((i) => i.status === "connected");
+  // ── Estado da conexão Google ────────────────────────────────────
+  // - all_connected: todas as 3 integrações ativas → mostra DESCONECTAR
+  // - mixed_or_stale: tem entry mas algumas revoked/expired → mostra RECONECTAR
+  // - empty: sem nenhuma → mostra + CONECTAR GOOGLE
+  const googleEntries = GOOGLE_PROVIDERS.map((p) => byProvider.get(p.id)).filter(
+    (i): i is Integration => Boolean(i),
+  );
+  const allConnected =
+    googleEntries.length === GOOGLE_PROVIDERS.length &&
+    googleEntries.every((i) => i.status === "connected");
+  const anyStale = googleEntries.some((i) => i.status !== "connected");
+  const connectionState: "all_connected" | "mixed_or_stale" | "empty" =
+    allConnected
+      ? "all_connected"
+      : googleEntries.length === 0
+      ? "empty"
+      : "mixed_or_stale";
 
   return (
     <div
@@ -211,44 +226,51 @@ export function IntegrationsPage(): JSX.Element {
                 Um consent → Gmail, Calendar e Drive de uma vez
               </div>
             </div>
-            {anyConnected ? (
-              <button
-                onClick={() => GOOGLE_PROVIDERS.forEach((p) => void handleDisconnect(p.id))}
-                className="hud-label"
-                style={{
-                  padding: "8px 14px",
-                  fontSize: 9,
-                  background: "transparent",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  color: "rgba(255,255,255,0.4)",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                }}
-              >
-                DESCONECTAR
-              </button>
-            ) : (
-              <button
-                onClick={handleConnect}
-                disabled={status.kind === "loading"}
-                className="hud-label"
-                style={{
-                  padding: "10px 18px",
-                  fontSize: 10,
-                  background:
-                    status.kind === "loading"
-                      ? "rgba(255,255,255,0.05)"
-                      : `linear-gradient(135deg, ${PRIMARY}25, rgba(124,58,237,0.15))`,
-                  border: `1px solid ${status.kind === "loading" ? "rgba(255,255,255,0.1)" : PRIMARY + "55"}`,
-                  color: status.kind === "loading" ? "rgba(255,255,255,0.3)" : PRIMARY,
-                  borderRadius: 6,
-                  cursor: status.kind === "loading" ? "not-allowed" : "pointer",
-                  boxShadow: status.kind === "loading" ? "none" : `0 0 12px ${PRIMARY}20`,
-                }}
-              >
-                {status.kind === "loading" ? "ABRINDO…" : "+ CONECTAR GOOGLE"}
-              </button>
-            )}
+            <div style={{ display: "flex", gap: 6 }}>
+              {(connectionState === "empty" || connectionState === "mixed_or_stale") && (
+                <button
+                  onClick={handleConnect}
+                  disabled={status.kind === "loading"}
+                  className="hud-label"
+                  style={{
+                    padding: "10px 18px",
+                    fontSize: 10,
+                    background:
+                      status.kind === "loading"
+                        ? "rgba(255,255,255,0.05)"
+                        : `linear-gradient(135deg, ${PRIMARY}25, rgba(124,58,237,0.15))`,
+                    border: `1px solid ${status.kind === "loading" ? "rgba(255,255,255,0.1)" : PRIMARY + "55"}`,
+                    color: status.kind === "loading" ? "rgba(255,255,255,0.3)" : PRIMARY,
+                    borderRadius: 6,
+                    cursor: status.kind === "loading" ? "not-allowed" : "pointer",
+                    boxShadow: status.kind === "loading" ? "none" : `0 0 12px ${PRIMARY}20`,
+                  }}
+                >
+                  {status.kind === "loading"
+                    ? "ABRINDO…"
+                    : connectionState === "mixed_or_stale"
+                    ? "↻ RECONECTAR"
+                    : "+ CONECTAR GOOGLE"}
+                </button>
+              )}
+              {(connectionState === "all_connected" || connectionState === "mixed_or_stale") && (
+                <button
+                  onClick={() => GOOGLE_PROVIDERS.forEach((p) => void handleDisconnect(p.id))}
+                  className="hud-label"
+                  style={{
+                    padding: "8px 14px",
+                    fontSize: 9,
+                    background: "transparent",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "rgba(255,255,255,0.4)",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                  }}
+                >
+                  DESCONECTAR
+                </button>
+              )}
+            </div>
           </div>
 
           {status.kind === "error" && (

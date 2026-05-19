@@ -1,6 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
 // O.R.I.O.N · Prisma schema · Postgres
-// Fonte: handoff seção 05 (schema do banco de dados)
 // ═══════════════════════════════════════════════════════════════════
 
 generator client {
@@ -179,8 +178,6 @@ model UserPreference {
   @@index([userId])
 }
 
-// ── PROJETOS ────────────────────────────────────────────────────────
-
 model Project {
   id        String   @id @default(cuid())
   userId    String
@@ -195,8 +192,6 @@ model Project {
   @@index([userId])
 }
 
-// ── MÓDULOS ─────────────────────────────────────────────────────────
-
 model UserModule {
   userId    String
   moduleId  String
@@ -209,8 +204,6 @@ model UserModule {
   @@id([userId, moduleId])
   @@index([userId])
 }
-
-// ── INTEGRAÇÕES ─────────────────────────────────────────────────────
 
 model Integration {
   id           String              @id @default(cuid())
@@ -229,8 +222,6 @@ model Integration {
   @@unique([userId, provider])
   @@index([userId])
 }
-
-// ── AUTOMAÇÕES ──────────────────────────────────────────────────────
 
 model Automation {
   id                   String          @id @default(cuid())
@@ -268,8 +259,6 @@ model AutomationLog {
   @@index([automationId, triggeredAt])
 }
 
-// ── MEMÓRIA ─────────────────────────────────────────────────────────
-
 model Memory {
   id         String     @id @default(cuid())
   userId     String
@@ -283,8 +272,6 @@ model Memory {
   @@index([userId])
   @@index([userId, type])
 }
-
-// ── CONVERSAS ───────────────────────────────────────────────────────
 
 model Conversation {
   id        String    @id @default(cuid())
@@ -311,8 +298,6 @@ model Message {
   @@index([conversationId])
 }
 
-// ── ALERTAS PROATIVOS ───────────────────────────────────────────────
-
 model ProactiveAlert {
   id        String        @id @default(cuid())
   userId    String
@@ -325,7 +310,6 @@ model ProactiveAlert {
   priority  AlertPriority @default(medium)
   dismissed Boolean       @default(false)
   approved  Boolean       @default(false)
-  /// Chave única de dedup — evita criar o mesmo alerta repetido (ex: "github_nudge:2026-05-17")
   dedupKey  String?
   expiresAt DateTime?
   createdAt DateTime      @default(now())
@@ -335,8 +319,6 @@ model ProactiveAlert {
   @@index([userId, dismissed, priority])
   @@index([userId, expiresAt])
 }
-
-// ── LESSONS (Módulo Conhecimento) ───────────────────────────────────
 
 model LessonSession {
   id        String          @id @default(cuid())
@@ -364,17 +346,13 @@ model LessonMessage {
   @@index([sessionId, createdAt])
 }
 
-// ── TASKS (Life OS) ─────────────────────────────────────────────────
-
 model Task {
   id           String     @id @default(cuid())
   userId       String
   title        String
   notes        String?    @db.Text
   status       TaskStatus @default(todo)
-  /// 1=low energy, 2=normal, 3=high energy required
   energy       Int        @default(2)
-  /// 1=low, 2=normal, 3=high
   priority     Int        @default(2)
   scheduledFor DateTime?
   dueAt        DateTime?
@@ -388,14 +366,10 @@ model Task {
   @@index([userId, scheduledFor])
 }
 
-// ── SAÚDE (Energy logs) ─────────────────────────────────────────────
-
 model EnergyLog {
   id        String   @id @default(cuid())
   userId    String
-  /// Escala 1-10
   value     Int
-  /// Tag opcional ("pós-almoço", "treino")
   note      String?
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -403,360 +377,6 @@ model EnergyLog {
   @@index([userId, createdAt])
 }
 
-// ── FOCO (Pomodoro) ─────────────────────────────────────────────────
-
-model FocusSession {
-  id            String    @id @default(cuid())
-  userId        String
-  /// Duração planejada (min)
-  duration      Int       @default(25)
-  /// Duração real (min) — null se em andamento
-  actualMinutes Int?
-  completed     Boolean   @default(false)
-  interruptedAt DateTime?
-  note          String?
-  startedAt     DateTime  @default(now())
-  endedAt       DateTime?
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, startedAt])
-}
-
-// ── HÁBITOS ─────────────────────────────────────────────────────────
-
-model Habit {
-  id         String     @id @default(cuid())
-  userId     String
-  name       String
-  /// "daily" | "weekly" | CSV ("1,3,5")
-  frequency  String     @default("daily")
-  color      String     @default("#00D4FF")
-  icon       String     @default("✓")
-  streak     Int        @default(0)
-  bestStreak Int        @default(0)
-  archivedAt DateTime?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  logs       HabitLog[]
-
-  @@index([userId, archivedAt])
-}
-
-model HabitLog {
-  id        String   @id @default(cuid())
-  habitId   String
-  /// Data YYYY-MM-DD (UTC) — 1 por dia
-  date      String
-  note      String?
-  createdAt DateTime @default(now())
-  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
-
-  @@unique([habitId, date])
-  @@index([habitId, date])
-}
-
-// ── CRIAÇÃO (Banco de ideias) ───────────────────────────────────────
-
-model ContentIdea {
-  id          String     @id @default(cuid())
-  userId      String
-  title       String
-  body        String?    @db.Text
-  niche       String     @default("geral")
-  format      String     @default("reels")
-  status      IdeaStatus @default(ideia)
-  scheduledAt DateTime?
-  publishedAt DateTime?
-  tags        String[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
-}
-
-// ── GAMING ──────────────────────────────────────────────────────────
-
-model GameEntry {
-  id          String     @id @default(cuid())
-  userId      String
-  title       String
-  rawgId      Int?
-  platform    String?
-  genre       String?
-  status      GameStatus @default(wishlist)
-  hoursPlayed Float      @default(0)
-  rating      Int?
-  notes       String?    @db.Text
-  coverUrl    String?
-  releasedAt  String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
-}
-
-// ── RADAR (Notícias salvas) ─────────────────────────────────────────
-
-model NewsItem {
-  id        String   @id @default(cuid())
-  userId    String
-  title     String
-  summary   String?  @db.Text
-  url       String
-  source    String?
-  category  String   @default("geral")
-  read      Boolean  @default(false)
-  saved     Boolean  @default(false)
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, url])
-  @@index([userId, read, createdAt])
-}
-
-// ── SLEEP COACH ─────────────────────────────────────────────────────
-
-model SleepLog {
-  id        String   @id @default(cuid())
-  userId    String
-  bedTime   DateTime
-  wakeTime  DateTime
-  /// Qualidade subjetiva 1-5
-  quality   Int      @default(3)
-  notes     String?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, bedTime])
-}
-
-// ── COMPRAS / WISHLIST ──────────────────────────────────────────────
-
-model WishlistItem {
-  id           String   @id @default(cuid())
-  userId       String
-  name         String
-  url          String
-  targetPrice  Float?
-  currentPrice Float?
-  priceHistory Json     @default("[]")
-  alertAtPct   Int      @default(20)
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-// ── USER PATTERNS (Memória mid-term) ────────────────────────────────
-
-model UserPattern {
-  id          String   @id @default(cuid())
-  userId      String
-  patternType String
-  data        Json
-  confidence  Float    @default(0.5)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, patternType])
-  @@index([userId])
-}
-
-// ── BILLING ─────────────────────────────────────────────────────────
-
-model Subscription {
-  userId    String    @id
-  plan      Plan
-  status    String
-  stripeId  String?   @unique
-  periodEnd DateTime?
-  updatedAt DateTime  @updatedAt
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-(Pomodoro) ─────────────────────────────────────────────────
-
-model FocusSession {
-  id            String    @id @default(cuid())
-  userId        String
-  /// Duração planejada (min)
-  duration      Int       @default(25)
-  /// Duração real (min) — null se em andamento
-  actualMinutes Int?
-  completed     Boolean   @default(false)
-  interruptedAt DateTime?
-  note          String?
-  startedAt     DateTime  @default(now())
-  endedAt       DateTime?
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, startedAt])
-}
-
-// ── HÁBITOS ─────────────────────────────────────────────────────────
-
-model Habit {
-  id         String     @id @default(cuid())
-  userId     String
-  name       String
-  /// "daily" | "weekly" | CSV ("1,3,5")
-  frequency  String     @default("daily")
-  color      String     @default("#00D4FF")
-  icon       String     @default("✓")
-  streak     Int        @default(0)
-  bestStreak Int        @default(0)
-  archivedAt DateTime?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  logs       HabitLog[]
-
-  @@index([userId, archivedAt])
-}
-
-model HabitLog {
-  id        String   @id @default(cuid())
-  habitId   String
-  /// Data YYYY-MM-DD (UTC) — 1 por dia
-  date      String
-  note      String?
-  createdAt DateTime @default(now())
-  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
-
-  @@unique([habitId, date])
-  @@index([habitId, date])
-}
-
-// ── CRIAÇÃO (Banco de ideias) ───────────────────────────────────────
-
-model ContentIdea {
-  id          String     @id @default(cuid())
-  userId      String
-  title       String
-  body        String?    @db.Text
-  niche       String     @default("geral")
-  format      String     @default("reels")
-  status      IdeaStatus @default(ideia)
-  scheduledAt DateTime?
-  publishedAt DateTime?
-  tags        String[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
-}
-
-// ── GAMING ──────────────────────────────────────────────────────────
-
-model GameEntry {
-  id          String     @id @default(cuid())
-  userId      String
-  title       String
-  rawgId      Int?
-  platform    String?
-  genre       String?
-  status      GameStatus @default(wishlist)
-  hoursPlayed Float      @default(0)
-  rating      Int?
-  notes       String?    @db.Text
-  coverUrl    String?
-  releasedAt  String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
-}
-
-// ── RADAR (Notícias salvas) ─────────────────────────────────────────
-
-model NewsItem {
-  id        String   @id @default(cuid())
-  userId    String
-  title     String
-  summary   String?  @db.Text
-  url       String
-  source    String?
-  category  String   @default("geral")
-  read      Boolean  @default(false)
-  saved     Boolean  @default(false)
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, url])
-  @@index([userId, read, createdAt])
-}
-
-// ── SLEEP COACH ─────────────────────────────────────────────────────
-
-model SleepLog {
-  id        String   @id @default(cuid())
-  userId    String
-  bedTime   DateTime
-  wakeTime  DateTime
-  /// Qualidade subjetiva 1-5
-  quality   Int      @default(3)
-  notes     String?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, bedTime])
-}
-
-// ── COMPRAS / WISHLIST ──────────────────────────────────────────────
-
-model WishlistItem {
-  id           String   @id @default(cuid())
-  userId       String
-  name         String
-  url          String
-  targetPrice  Float?
-  currentPrice Float?
-  priceHistory Json     @default("[]")
-  alertAtPct   Int      @default(20)
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-// ── USER PATTERNS (Memória mid-term) ────────────────────────────────
-
-model UserPattern {
-  id          String   @id @default(cuid())
-  userId      String
-  patternType String
-  data        Json
-  confidence  Float    @default(0.5)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, patternType])
-  @@index([userId])
-}
-
-// ── BILLING ─────────────────────────────────────────────────────────
-
-model Subscription {
-  userId    String    @id
-  plan      Plan
-  status    String
-  stripeId  String?   @unique
-  periodEnd DateTime?
-  updatedAt DateTime  @updatedAt
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-(Pomodoro) ─────────────────────────────────────────────────
-
 model FocusSession {
   id            String    @id @default(cuid())
   userId        String
@@ -771,8 +391,6 @@ model FocusSession {
 
   @@index([userId, startedAt])
 }
-
-// ── HÁBITOS ─────────────────────────────────────────────────────────
 
 model Habit {
   id         String     @id @default(cuid())
@@ -804,8 +422,6 @@ model HabitLog {
   @@index([habitId, date])
 }
 
-// ── CRIAÇÃO (Banco de ideias) ───────────────────────────────────────
-
 model ContentIdea {
   id          String     @id @default(cuid())
   userId      String
@@ -823,8 +439,6 @@ model ContentIdea {
 
   @@index([userId, status])
 }
-
-// ── GAMING ──────────────────────────────────────────────────────────
 
 model GameEntry {
   id          String     @id @default(cuid())
@@ -846,8 +460,6 @@ model GameEntry {
   @@index([userId, status])
 }
 
-// ── RADAR (Notícias salvas) ─────────────────────────────────────────
-
 model NewsItem {
   id        String   @id @default(cuid())
   userId    String
@@ -865,8 +477,6 @@ model NewsItem {
   @@index([userId, read, createdAt])
 }
 
-// ── SLEEP COACH ─────────────────────────────────────────────────────
-
 model SleepLog {
   id        String   @id @default(cuid())
   userId    String
@@ -879,8 +489,6 @@ model SleepLog {
 
   @@index([userId, bedTime])
 }
-
-// ── COMPRAS / WISHLIST ──────────────────────────────────────────────
 
 model WishlistItem {
   id           String   @id @default(cuid())
@@ -899,8 +507,6 @@ model WishlistItem {
   @@index([userId])
 }
 
-// ── USER PATTERNS (Memória mid-term) ────────────────────────────────
-
 model UserPattern {
   id          String   @id @default(cuid())
   userId      String
@@ -914,8 +520,6 @@ model UserPattern {
   @@unique([userId, patternType])
   @@index([userId])
 }
-
-// ── BILLING ─────────────────────────────────────────────────────────
 
 model Subscription {
   userId    String    @id
