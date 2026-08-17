@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ContentIdea, IdeaStatus } from "@orion/types";
 import { ModuleShell } from "../../components/layout/ModuleShell.js";
+import { ModuleChat } from "../../components/panels/ModuleChat.js";
 import {
   useCreateIdea,
   useDeleteIdea,
@@ -18,7 +19,7 @@ const COLUMNS: Array<{ id: IdeaStatus; label: string; color: string }> = [
   { id: "publicado", label: "PUBLICADO", color: "#10B981" },
 ];
 
-const FORMATS = ["reels", "carrossel", "estatico", "stories", "thread", "blog", "video"];
+const FORMATS = ["reels", "tiktok", "carrossel", "stories", "unboxing", "haul", "review", "tutorial", "thread", "blog", "video", "foto"];
 
 export function CreativePage(): JSX.Element {
   const { data: ideas, isLoading } = useIdeas();
@@ -78,14 +79,14 @@ export function CreativePage(): JSX.Element {
                 outline: "none",
               }}
             >
-              {["geral", "geek", "dev", "lifestyle", "make", "anime", "games"].map((n) => (
+              {["geral", "ugc", "kpop", "fanmade", "lifestyle", "geek", "anime", "games", "make", "dev", "moda", "culinaria"].map((n) => (
                 <option key={n} value={n} style={{ background: "#0A0F1A" }}>{n}</option>
               ))}
             </select>
             <input
               value={audience}
               onChange={(e) => setAudience(e.target.value)}
-              placeholder='Audiência (ex: "iniciantes em React")'
+              placeholder='Audiência (ex: "fãs de kpop", "compradoras de skincare")'
               style={{
                 flex: 1,
                 minWidth: 200,
@@ -255,6 +256,13 @@ export function CreativePage(): JSX.Element {
           </div>
         )}
       </div>
+      <ModuleChat
+        module="creative"
+        label="CRIACAO"
+        color={PRIMARY}
+        welcome="Posso gerar ideias pro seu nicho, planejar conteudo, organizar calendario editorial e dar feedback. O que voce precisa?"
+        suggestions={["Gerar 5 ideias", "Calendario editorial", "Feedback de ideia", "Tendencias do nicho"]}
+      />
     </ModuleShell>
   );
 }

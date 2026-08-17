@@ -1,0 +1,81 @@
+name: ORION CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ── Quality Gate ─────────────────────────────────────────────
+  quality:
+    name: Typecheck + Lint + Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: orion
+          POSTGRES_PASSWORD: orion_test
+          POSTGRES_DB: orion_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U orion -d orion_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema=apps/api/prisma/schema.prisma
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm run test --workspace=apps/api --if-present
+        env:
+          DATABASE_URL: "postgresql://orion:orion_test@localhost:5432/orion_test?schema=public"
+          REDIS_URL: "redis://localhost:6379"
+          NODE_ENV: "test"
+
+  # ── Build Docker Image ──────────────────────────────────────
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: quality
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f apps/api/Dockerfile -t orion-api:${{ github.sha }} .
+
+      - name: Verify image
+        run: docker run --rm orion-api:${{ github.sha }} node -e "console.log('ORION API image OK')"

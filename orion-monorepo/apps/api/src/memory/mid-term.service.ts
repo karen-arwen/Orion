@@ -1,4 +1,5 @@
 import { prisma } from "../db/prisma.js";
+import type { Prisma } from "@prisma/client";
 
 /* ═══════════════════════════════════════════════════════════════════
    Mid-term memory — padrões comportamentais do usuário.
@@ -44,8 +45,8 @@ export async function upsertPattern(
 ): Promise<void> {
   await prisma.userPattern.upsert({
     where: { userId_patternType: { userId, patternType } },
-    create: { userId, patternType, data, confidence },
-    update: { data, confidence },
+    create: { userId, patternType, data: data as Prisma.InputJsonValue, confidence },
+    update: { data: data as Prisma.InputJsonValue, confidence },
   });
 }
 

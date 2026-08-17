@@ -34,7 +34,7 @@ export function RightRail({
     { label: "Calendar MCP", state: connectedProviders.includes("gcal") ? "CONECTADO" : "OFF", color: connectedProviders.includes("gcal") ? "#10B981" : "#64748B" },
     { label: "Drive MCP", state: connectedProviders.includes("gdrive") ? "CONECTADO" : "OFF", color: connectedProviders.includes("gdrive") ? "#10B981" : "#64748B" },
     { label: "Memória", state: "ATIVA", color: "#10B981" },
-    { label: "Modo", state: mode, color: MODE_COLORS[mode] },
+    { label: "Modo", state: mode, color: MODE_COLORS[mode] ?? "#00D4FF" },
   ];
 
   return (
@@ -53,31 +53,33 @@ export function RightRail({
         <div className="hud-label" style={{ fontSize: 8, color: "rgba(255,255,255,0.13)", marginBottom: 10 }}>
           ALERTAS PROATIVOS · {alerts.length}
         </div>
-        {alerts.length === 0 ? (
-          <div
-            className="hud-label"
-            style={{
-              fontSize: 10,
-              color: "rgba(255,255,255,0.13)",
-              textAlign: "center",
-              padding: 16,
-              lineHeight: 1.8,
-            }}
-          >
-            Sistema silencioso.
-            <br />
-            Nenhum alerta pendente.
-          </div>
-        ) : (
-          alerts.map((a) => (
-            <AlertCard
-              key={a.id}
-              alert={a}
-              onApprove={() => onAlertApprove(a)}
-              onDismiss={() => onAlertDismiss(a)}
-            />
-          ))
-        )}
+        <div style={{ maxHeight: 340, overflowY: "auto", paddingRight: 2 }}>
+          {alerts.length === 0 ? (
+            <div
+              className="hud-label"
+              style={{
+                fontSize: 10,
+                color: "rgba(255,255,255,0.13)",
+                textAlign: "center",
+                padding: 16,
+                lineHeight: 1.8,
+              }}
+            >
+              Sistema silencioso.
+              <br />
+              Nenhum alerta pendente.
+            </div>
+          ) : (
+            alerts.map((a) => (
+              <AlertCard
+                key={a.id}
+                alert={a}
+                onApprove={() => onAlertApprove(a)}
+                onDismiss={() => onAlertDismiss(a)}
+              />
+            ))
+          )}
+        </div>
       </div>
 
       <div>

@@ -44,8 +44,11 @@ export async function braveSearch(
 ): Promise<SearchResult[]> {
   if (!env.BRAVE_SEARCH_API_KEY) throw new Error("BRAVE_SEARCH_API_KEY não configurada.");
 
+  // Brave limita query a ~400 chars
+  const safeQuery = query.length > 400 ? query.slice(0, 397) + "..." : query;
+
   const url = new URL(ENDPOINT);
-  url.searchParams.set("q", query);
+  url.searchParams.set("q", safeQuery);
   url.searchParams.set("count", String(Math.min(20, Math.max(1, opts.count ?? 8))));
   url.searchParams.set("country", opts.country ?? "BR");
   url.searchParams.set("safesearch", "moderate");

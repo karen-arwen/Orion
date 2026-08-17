@@ -2,7 +2,6 @@ import type { Response } from "express";
 import type { ChatMessage, UserProfile } from "@orion/types";
 import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
-import { aiService } from "./ai.service.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { memoryService } from "../memory/memory.service.js";
 import { extractAndSaveMemories } from "../memory/memory-extractor.js";
@@ -11,18 +10,26 @@ import { getUserPatterns, renderPatternsForPrompt } from "../memory/mid-term.ser
 import { tryEnsureFreshAccessToken } from "../integrations/token-manager.js";
 import { captureBrainSnapshot, renderBrainContext } from "../brain/context.service.js";
 import { setSseHeaders, sseEvent, streamClaudeResponse } from "./streaming.js";
+import { captureImplicitIntents, executeIntents } from "../memory/intent-capture.js";
+import { extractEntitiesFromConversation, upsertEntityGraph } from "../memory/entity-graph.js";
 import type { ToolContext } from "./tools.js";
+import { getModuleContext } from "./module-context.service.js";
 
 /* ═══════════════════════════════════════════════════════════════════
-   AI stream service — versão streaming do chat.
+   AI stream service — streaming com tool use nativo.
 
-   Fluxo:
-   1. Coleta contexto (brain, memórias, patterns) igual ao non-stream
-   2. Abre SSE
-   3. Stream Claude → emite deltas via SSE
-   4. Se Claude precisar de tool, sinaliza `fallback_to_tools` →
-      frontend deve refazer via POST /v1/chat (não-streaming, que faz loop)
-   5. Quando termina, persiste no banco + Redis + extrai memórias
+   Agora o stream não cai em fallback quando Claude pede uma ferramenta.
+   O loop de tools acontece dentro do stream — o frontend só precisa
+   ouvir os eventos e renderizar.
+
+   Eventos SSE emitidos:
+   { type: "open" }
+   { type: "meta", conversationId: "..." }
+   { type: "text", value: "..." }            — delta token-a-token
+   { type: "tool_start", tools: ["..."] }    — tool(s) sendo executada(s)
+   { type: "tool_done", results: [{...}] }   — resultado das tools
+   { type: "done" }                          — fim
+   { type: "error", message: "..." }         — erro
 ═══════════════════════════════════════════════════════════════════ */
 
 function toProfile(user: {
@@ -76,7 +83,6 @@ export interface StreamInput {
 export async function streamChat(input: StreamInput): Promise<void> {
   const { userId, message, conversationId, module, res } = input;
 
-  // Setup SSE imediato — frontend vê "conectado"
   setSseHeaders(res);
   sseEvent(res, { type: "open" });
 
@@ -92,7 +98,6 @@ export async function streamChat(input: StreamInput): Promise<void> {
 
   const profile = toProfile(user);
 
-  // Tokens frescos
   const tokenMap = new Map<string, string>();
   await Promise.all(
     user.integrations.map(async (i) => {
@@ -102,6 +107,7 @@ export async function streamChat(input: StreamInput): Promise<void> {
   );
 
   const toolContext: ToolContext = {
+    userId,
     gmailToken: tokenMap.get("gmail") ?? null,
     gcalToken: tokenMap.get("gcal") ?? null,
     gdriveToken: tokenMap.get("gdrive") ?? null,
@@ -111,9 +117,16 @@ export async function streamChat(input: StreamInput): Promise<void> {
       rawg: Boolean(env.RAWG_API_KEY),
     },
     webSearchAvailable: Boolean(env.BRAVE_SEARCH_API_KEY),
+    externalConnectors: {
+      slack: Boolean(env.SLACK_BOT_TOKEN),
+      spotify: Boolean(env.SPOTIFY_CLIENT_ID && env.SPOTIFY_CLIENT_SECRET),
+      todoist: Boolean(env.TODOIST_API_TOKEN),
+      linear: Boolean(env.LINEAR_API_KEY || env.LINEAR_OAUTH_TOKEN),
+      github: Boolean(env.GITHUB_TOKEN),
+      microsoft: tokenMap.has("microsoft"),
+    },
   };
 
-  // Conversa
   const conversation = conversationId
     ? await prisma.conversation.findFirst({ where: { id: conversationId, userId } })
     : await prisma.conversation.create({ data: { userId, moduleId: module ?? null } });
@@ -123,12 +136,22 @@ export async function streamChat(input: StreamInput): Promise<void> {
     return;
   }
 
-  // Contexto paralelo
-  const [snapshot, shortHistory, relevantMemories, patterns] = await Promise.all([
+  const [snapshot, shortHistory, relevantMemories, patterns, preferences, autonomyPolicies, moduleContext] = await Promise.all([
     captureBrainSnapshot(userId).catch(() => null),
     memoryService.getShortTerm(userId, conversation.id),
     searchRelevantMemories(userId, message, 5).catch(() => []),
     getUserPatterns(userId).catch(() => []),
+    prisma.userPreference.findMany({
+      where: { userId },
+      orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
+      take: 16,
+    }).catch(() => []),
+    prisma.autonomyPolicy.findMany({
+      where: { userId, enabled: true },
+      orderBy: [{ moduleId: "asc" }],
+      take: 20,
+    }).catch(() => []),
+    getModuleContext(userId, module).catch(() => undefined),
   ]);
 
   const brainContext = snapshot
@@ -136,10 +159,20 @@ export async function streamChat(input: StreamInput): Promise<void> {
     : `Hora local: ${new Date().toLocaleString("pt-BR", { timeZone: profile.timezone })}`;
 
   const memoryContext = [
-    "## Memórias relevantes pra esta mensagem:",
+    "## Memórias relevantes:",
     renderMemoriesForPrompt(relevantMemories),
     "",
-    "## Padrões aprendidos sobre você:",
+    "## Preferências:",
+    preferences.length
+      ? preferences.map((p) => `- ${p.key}: ${p.value}`).join("\n")
+      : "(nenhuma)",
+    "",
+    "## Políticas de autonomia:",
+    autonomyPolicies.length
+      ? autonomyPolicies.map((p) => `- ${p.moduleId}: ${p.level}`).join("\n")
+      : "(padrão)",
+    "",
+    "## Padrões:",
     renderPatternsForPrompt(patterns),
   ].join("\n");
 
@@ -147,9 +180,25 @@ export async function streamChat(input: StreamInput): Promise<void> {
   if (toolContext.gmailToken) activeTools.push("gmail (listar/ler/rascunhar/enviar/responder)");
   if (toolContext.gcalToken) activeTools.push("calendar (listar/criar)");
   if (toolContext.gdriveToken) activeTools.push("drive (buscar/ler docs)");
-  if (toolContext.trendsAvailable.tmdb) activeTools.push("trends_movies / trends_series");
-  if (toolContext.trendsAvailable.rawg) activeTools.push("trends_games / game_search");
+  activeTools.push("orion_action · external_action_prepare · decision_create");
+  activeTools.push("workspace_scan · workspace_read_file · workspace_prepare_file · workspace_prepare_patch · workspace_prepare_command");
   if (toolContext.webSearchAvailable) activeTools.push("web_search (Brave)");
+  if (toolContext.trendsAvailable.tmdb) activeTools.push("trends_movies · trends_series");
+  if (toolContext.trendsAvailable.rawg) activeTools.push("trends_games · game_search");
+  if (toolContext.externalConnectors.slack) activeTools.push("slack_history · slack_post_message");
+  if (toolContext.externalConnectors.spotify) activeTools.push("spotify_search");
+  if (toolContext.externalConnectors.todoist) activeTools.push("todoist_list_tasks · todoist_create_task");
+  if (toolContext.externalConnectors.linear) activeTools.push("linear_list_teams · linear_list_issues · linear_create_issue");
+  if (toolContext.externalConnectors.github) activeTools.push("github_list_repos · github_list_issues · github_list_prs · github_repo_summary · github_notifications · github_create_issue");
+  if (toolContext.externalConnectors.microsoft) activeTools.push("outlook_list_emails · outlook_get_email · outlook_send_email · outlook_list_events · teams_list_teams · teams_list_messages · teams_send_message · onedrive_recent");
+
+  // Buscar perfil comportamental para personalidade adaptativa
+  const behavioralPref = await prisma.userPreference.findFirst({
+    where: { userId, key: "behavioral_profile" },
+  }).catch(() => null);
+  const behavioralProfile = behavioralPref?.value
+    ? (() => { try { return JSON.parse(behavioralPref.value); } catch { return undefined; } })()
+    : undefined;
 
   const systemPrompt = buildSystemPrompt({
     profile,
@@ -157,6 +206,8 @@ export async function streamChat(input: StreamInput): Promise<void> {
     activeTools,
     brainContext,
     memoryContext,
+    behavioralProfile,
+    moduleContext,
   });
 
   const userMsg: ChatMessage = { role: "user", content: message };
@@ -164,60 +215,48 @@ export async function streamChat(input: StreamInput): Promise<void> {
 
   sseEvent(res, { type: "meta", conversationId: conversation.id });
 
-  // Stream
-  let aborted = false;
+  const dynamicMaxTokens = message.length > 3000 ? 16000 : message.length > 1000 ? 8192 : 4096;
+
   await streamClaudeResponse({
     systemPrompt,
     messages: fullHistory,
     toolContext,
+    maxTokens: dynamicMaxTokens,
     onTextDelta: (text) => sseEvent(res, { type: "text", value: text }),
-    onToolUse: () => {
-      aborted = true;
-      sseEvent(res, {
-        type: "fallback_to_tools",
-        note: "essa pergunta precisa de ferramenta — refaça via POST /v1/chat",
-      });
-      res.end();
-    },
-    onComplete: async (finalText) => {
+    onToolStart: (toolNames) => sseEvent(res, { type: "tool_start", tools: toolNames }),
+    onToolDone: (results) => sseEvent(res, { type: "tool_done", results }),
+    onComplete: (finalText) => {
       sseEvent(res, { type: "done" });
       res.end();
 
-      // Persiste (fire-and-forget pra não bloquear o end())
-      const assistantMsg: ChatMessage = { role: "assistant", content: finalText };
+      // Pipeline pós-resposta — fire-and-forget
       void (async () => {
+        const assistantMsg: ChatMessage = { role: "assistant", content: finalText };
         try {
           await prisma.$transaction([
-            prisma.message.create({
-              data: { conversationId: conversation.id, role: "user", content: message },
-            }),
-            prisma.message.create({
-              data: { conversationId: conversation.id, role: "assistant", content: finalText },
-            }),
-            prisma.conversation.update({
-              where: { id: conversation.id },
-              data: { updatedAt: new Date() },
-            }),
+            prisma.message.create({ data: { conversationId: conversation.id, role: "user", content: message } }),
+            prisma.message.create({ data: { conversationId: conversation.id, role: "assistant", content: finalText } }),
+            prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } }),
           ]);
           await memoryService.pushShortTerm(userId, conversation.id, userMsg);
           await memoryService.pushShortTerm(userId, conversation.id, assistantMsg);
-          void extractAndSaveMemories({
-            userId,
-            userMessage: message,
-            assistantMessage: finalText,
-          });
+          void extractAndSaveMemories({ userId, userMessage: message, assistantMessage: finalText });
+
+          void captureImplicitIntents(message, userId).then((intents) => {
+            if (intents.length > 0) void executeIntents(userId, intents);
+          }).catch(() => undefined);
+
+          void extractEntitiesFromConversation({ userId, userMessage: message, assistantMessage: finalText })
+            .then((graph) => { if (graph) void upsertEntityGraph(userId, graph); })
+            .catch(() => undefined);
         } catch (err) {
           console.warn("[stream] persist falhou:", (err as Error).message);
         }
       })();
     },
     onError: (err) => {
-      if (aborted) return;
       sseEvent(res, { type: "error", message: err.message });
       res.end();
     },
   });
-
-  // Marca aiService como usado pra evitar TS unused warning
-  void aiService;
 }

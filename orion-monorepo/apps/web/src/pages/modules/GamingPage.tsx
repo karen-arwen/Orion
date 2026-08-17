@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { GameEntry, GameStatus } from "@orion/types";
 import { ModuleShell } from "../../components/layout/ModuleShell.js";
+import { ModuleChat } from "../../components/panels/ModuleChat.js";
 import {
   useAddGame,
   useDeleteGame,
@@ -54,9 +55,9 @@ export function GamingPage(): JSX.Element {
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         {/* ── Stats grid ── */}
         <div
+          className="gaming-stats-grid"
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
             gap: 10,
             marginBottom: 18,
           }}
@@ -295,9 +296,9 @@ export function GamingPage(): JSX.Element {
         {/* ── Library grid ── */}
         {filtered.length > 0 && (
           <div
+            className="gaming-library-grid"
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
               gap: 14,
             }}
           >
@@ -314,6 +315,13 @@ export function GamingPage(): JSX.Element {
           </div>
         )}
       </div>
+      <ModuleChat
+        module="gaming"
+        label="GAMING"
+        color={PRIMARY}
+        welcome="Me diz o que voce gosta de jogar e eu recomendo jogos, organizo sua backlog e acompanho seu progresso."
+        suggestions={["Recomendar jogos", "Backlog organizada", "O que jogar hoje?", "Lancamentos"]}
+      />
     </ModuleShell>
   );
 }

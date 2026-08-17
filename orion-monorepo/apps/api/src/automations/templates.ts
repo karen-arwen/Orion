@@ -1,4 +1,5 @@
 import { prisma } from "../db/prisma.js";
+import { Prisma } from "@prisma/client";
 import type { AutomationAction, AutomationConditions } from "./engine.js";
 import { automationQueue, JOB_NAMES } from "../queues/index.js";
 
@@ -215,9 +216,9 @@ export async function seedDefaultAutomations(userId: string): Promise<void> {
         name: tpl.name,
         description: tpl.description,
         triggerType: tpl.triggerType,
-        triggerConfig: tpl.triggerConfig,
-        conditions: (tpl.conditions ?? null) as object | null,
-        actions: tpl.actions as unknown as object,
+        triggerConfig: tpl.triggerConfig as Prisma.InputJsonValue,
+        conditions: (tpl.conditions ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        actions: tpl.actions as unknown as Prisma.InputJsonValue,
         requiresConfirmation: tpl.requiresConfirmation,
         confirmationTimeout: tpl.confirmationTimeout ?? 240,
         enabled: tpl.triggerType !== "event", // event triggers desligados por padrão (dependem de módulos futuros)

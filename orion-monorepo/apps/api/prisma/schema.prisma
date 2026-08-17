@@ -51,6 +51,13 @@ enum AutomationStatus {
   dismissed
 }
 
+enum DecisionStatus {
+  pending
+  approved
+  dismissed
+  executed
+}
+
 enum AlertPriority {
   low
   medium
@@ -75,6 +82,16 @@ enum IntegrationProvider {
   slack
   spotify
   booking
+  microsoft
+  github
+  atlassian
+  discord
+  figma
+  strava
+  mercadolivre
+  linear
+  todoist
+  whatsapp
 }
 
 enum IntegrationStatus {
@@ -82,6 +99,7 @@ enum IntegrationStatus {
   expired
   revoked
   error
+  disconnected
 }
 
 enum ChatRole {
@@ -114,6 +132,57 @@ enum GameStatus {
   paused
 }
 
+enum MediaKind {
+  movie
+  series
+  anime
+  documentary
+  book
+  manga
+  other
+}
+
+enum MediaStatus {
+  wishlist
+  watching
+  finished
+  dropped
+  paused
+}
+
+enum FinanceTransactionType {
+  expense
+  income
+}
+
+enum FinanceGoalStatus {
+  active
+  paused
+  completed
+  archived
+}
+
+enum SecurityRiskLevel {
+  low
+  medium
+  high
+  critical
+}
+
+enum AutonomyLevel {
+  observe
+  suggest
+  draft
+  confirm
+  execute
+}
+
+enum AutonomyRouteStatus {
+  executed
+  decision
+  blocked
+}
+
 // ── USUÁRIOS ────────────────────────────────────────────────────────
 
 model User {
@@ -132,11 +201,16 @@ model User {
   preferences   UserPreference[]
   projects      Project[]
   modules       UserModule[]
-  integrations  Integration[]
+  integrations    Integration[]
+  calendarEvents  CalendarEvent[]
   automations   Automation[]
+  autonomyPolicies AutonomyPolicy[]
+  autonomyActionLogs AutonomyActionLog[]
   memories      Memory[]
   conversations Conversation[]
   alerts        ProactiveAlert[]
+  decisions     DecisionItem[]
+  webhookEvents WebhookEvent[]
   subscription  Subscription?
   tasks         Task[]
   lessons       LessonSession[]
@@ -146,9 +220,40 @@ model User {
   habits        Habit[]
   contentIdeas  ContentIdea[]
   games         GameEntry[]
+  mediaItems    MediaItem[]
   newsItems     NewsItem[]
   sleepLogs     SleepLog[]
   wishlist      WishlistItem[]
+  mindsetLogs   MindsetCheckin[]
+  contacts      SocialContact[]
+  financeTransactions FinanceTransaction[]
+  financeSubscriptions FinanceSubscription[]
+  financeGoals FinanceGoal[]
+  securityAccounts SecurityAccount[]
+  securityFindings SecurityFinding[]
+
+  // ── ORION v2 relations ──
+  aiUsageLogs      AiUsageLog[]
+  agentRuns        AgentRun[]
+  kgEntities       KGEntity[]
+  goals            Goal[]
+  predictions      Prediction[]
+  quests           Quest[]
+  achievements     Achievement[]
+  xpEvents         XPEvent[]
+  inboxItems       UniversalInboxItem[]
+  workflows        Workflow[]
+  reflections      Reflection[]
+  notifications    SmartNotification[]
+  timelineEvents   LifeTimelineEvent[]
+  digitalTwin      DigitalTwinProfile?
+  packageTrackings PackageTracking[]
+  flightTrackings  FlightTracking[]
+  savedRecipes     SavedRecipe[]
+  financeBudgets   FinanceBudget[]
+  routines         Routine[]
+  journalEntries   JournalEntry[]
+  docAnalyses      DocAnalysis[]
 }
 
 model UserProfile {
@@ -217,10 +322,34 @@ model Integration {
   status       IntegrationStatus   @default(connected)
   connectedAt  DateTime            @default(now())
   lastUsedAt   DateTime?
+  meta         Json     @default("{}")
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, provider])
   @@index([userId])
+}
+
+
+model CalendarEvent {
+  id          String    @id @default(cuid())
+  userId      String
+  externalId  String    // ID do Google/Outlook
+  source      String    // "google" | "microsoft"
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+  location    String?
+  attendees   String[]  // emails
+  meetingUrl  String?
+  isAllDay    Boolean   @default(false)
+  synced      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, externalId, source])
+  @@index([userId, startTime])
 }
 
 model Automation {
@@ -259,6 +388,42 @@ model AutomationLog {
   @@index([automationId, triggeredAt])
 }
 
+model AutonomyPolicy {
+  id                  String        @id @default(cuid())
+  userId              String
+  moduleId            String
+  level               AutonomyLevel @default(suggest)
+  enabled             Boolean       @default(true)
+  requiresConfirmation Boolean      @default(true)
+  quietHoursStart     String?
+  quietHoursEnd       String?
+  maxDailyActions     Int           @default(3)
+  rules               String[]      @default([])
+  updatedAt           DateTime      @updatedAt
+  createdAt           DateTime      @default(now())
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+  @@index([userId, enabled, level])
+}
+
+model AutonomyActionLog {
+  id          String              @id @default(cuid())
+  userId      String
+  moduleId    String
+  actionType  String
+  title       String
+  status      AutonomyRouteStatus
+  reason      String?
+  decisionId  String?
+  entityId    String?
+  createdAt   DateTime            @default(now())
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, moduleId, createdAt])
+  @@index([userId, status, createdAt])
+}
+
 model Memory {
   id         String     @id @default(cuid())
   userId     String
@@ -266,11 +431,14 @@ model Memory {
   content    String     @db.Text
   embedding  Float[]
   importance Float      @default(0.5)
+  pinned     Boolean    @default(false)
   createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @default(now()) @updatedAt
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, type])
+  @@index([userId, pinned, importance])
 }
 
 model Conversation {
@@ -320,6 +488,47 @@ model ProactiveAlert {
   @@index([userId, expiresAt])
 }
 
+model DecisionItem {
+  id             String         @id @default(cuid())
+  userId         String
+  source         String
+  sourceId       String?
+  title          String
+  summary        String         @db.Text
+  proposedAction String         @db.Text
+  payload        Json           @default("{}")
+  priority       AlertPriority  @default(medium)
+  status         DecisionStatus @default(pending)
+  dedupKey       String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  decidedAt      DateTime?
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupKey])
+  @@index([userId, status, priority])
+  @@index([userId, createdAt])
+}
+
+model WebhookEvent {
+  id                String    @id @default(cuid())
+  provider          String
+  eventId           String?
+  eventType         String
+  externalAccountId String?
+  userId            String?
+  payload           Json      @default("{}")
+  status            String    @default("received")
+  receivedAt        DateTime  @default(now())
+  processedAt       DateTime?
+  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, eventId])
+  @@index([provider, eventType, receivedAt])
+  @@index([externalAccountId])
+  @@index([userId, receivedAt])
+}
+
 model LessonSession {
   id        String          @id @default(cuid())
   userId    String
@@ -347,23 +556,31 @@ model LessonMessage {
 }
 
 model Task {
-  id           String     @id @default(cuid())
-  userId       String
-  title        String
-  notes        String?    @db.Text
-  status       TaskStatus @default(todo)
-  energy       Int        @default(2)
-  priority     Int        @default(2)
-  scheduledFor DateTime?
-  dueAt        DateTime?
-  estMinutes   Int?
-  projectId    String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String     @id @default(cuid())
+  userId         String
+  title          String
+  notes          String?    @db.Text
+  status         TaskStatus @default(todo)
+  energy         Int        @default(2)
+  priority       Int        @default(2)
+  scheduledFor   DateTime?
+  dueAt          DateTime?
+  estMinutes     Int?
+  projectId      String?
+  parentId       String?
+  isRecurring    Boolean    @default(false)
+  recurrenceRule String?    // "daily" | "weekly" | "monthly" | "weekdays"
+  completedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent         Task?      @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subtasks       Task[]     @relation("TaskSubtasks")
 
   @@index([userId, status])
   @@index([userId, scheduledFor])
+  @@index([userId, dueAt])
+  @@index([userId, parentId])
 }
 
 model EnergyLog {
@@ -460,6 +677,29 @@ model GameEntry {
   @@index([userId, status])
 }
 
+model MediaItem {
+  id          String          @id @default(cuid())
+  userId      String
+  title       String
+  kind        MediaKind       @default(movie)
+  status      MediaStatus     @default(wishlist)
+  genres      String[]
+  mood        String          @default("")
+  platform    String          @default("")
+  releaseYear Int?
+  rating      Int?
+  notes       String          @default("") @db.Text
+  coverUrl    String?
+  tasteLayer  PreferenceLayer @default(current)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, kind])
+  @@index([userId, tasteLayer])
+}
+
 model NewsItem {
   id        String   @id @default(cuid())
   userId    String
@@ -502,9 +742,44 @@ model WishlistItem {
   notes        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  priceHistories PriceHistory[]
 
   @@index([userId])
+}
+
+model MindsetCheckin {
+  id           String   @id @default(cuid())
+  userId       String
+  mood         Int
+  energy       Int
+  stress       Int
+  note         String?  @db.Text
+  pattern      String
+  intervention String   @db.Text
+  reframe      String   @db.Text
+  nextAction   String   @db.Text
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, pattern])
+}
+
+model SocialContact {
+  id              String    @id @default(cuid())
+  userId          String
+  name            String
+  context         String    @default("") @db.Text
+  lastInteraction DateTime?
+  nextStep        String    @default("Enviar mensagem de follow-up") @db.Text
+  importance      Int       @default(5)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, importance])
+  @@index([userId, updatedAt])
 }
 
 model UserPattern {
@@ -521,6 +796,91 @@ model UserPattern {
   @@index([userId])
 }
 
+model FinanceTransaction {
+  id          String                 @id @default(cuid())
+  userId      String
+  type        FinanceTransactionType @default(expense)
+  amount      Float
+  category    String                 @default("geral")
+  merchant    String                 @default("")
+  note        String                 @default("") @db.Text
+  occurredAt  DateTime               @default(now())
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @default(now()) @updatedAt
+  user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
+  @@index([userId, category])
+}
+
+model FinanceSubscription {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  amount      Float
+  category    String   @default("assinatura")
+  billingDay  Int?
+  active      Boolean  @default(true)
+  note        String   @default("") @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, active])
+  @@index([userId, billingDay])
+}
+
+model FinanceGoal {
+  id            String            @id @default(cuid())
+  userId        String
+  name          String
+  targetAmount  Float
+  currentAmount Float             @default(0)
+  deadline      DateTime?
+  status        FinanceGoalStatus @default(active)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @default(now()) @updatedAt
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([userId, deadline])
+}
+
+model SecurityAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  service           String
+  category          String   @default("geral")
+  email             String   @default("")
+  hasTwoFactor      Boolean  @default(false)
+  usesPasswordManager Boolean @default(false)
+  passwordRotatedAt DateTime?
+  recoveryCheckedAt DateTime?
+  notes             String   @default("") @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
+  @@index([userId, hasTwoFactor])
+}
+
+model SecurityFinding {
+  id          String            @id @default(cuid())
+  userId      String
+  title       String
+  detail      String            @db.Text
+  action      String            @db.Text
+  risk        SecurityRiskLevel @default(medium)
+  resolved    Boolean           @default(false)
+  source      String            @default("manual")
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @default(now()) @updatedAt
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, resolved, risk])
+}
+
 model Subscription {
   userId    String    @id
   plan      Plan
@@ -529,4 +889,574 @@ model Subscription {
   periodEnd DateTime?
   updatedAt DateTime  @updatedAt
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ORION v2 — AI Operating System Models
+// ═══════════════════════════════════════════════════════════════════
+
+// ── COGNITIVE CORE: Multi-LLM Router ──────────────────────────────
+
+model AiProvider {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  baseUrl   String
+  apiKeyEnv String    // env var name, not the key itself
+  enabled   Boolean   @default(true)
+  models    AiModel[]
+  createdAt DateTime  @default(now())
+}
+
+model AiModel {
+  id              String     @id @default(cuid())
+  providerId      String
+  provider        AiProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  slug            String     @unique // e.g. "claude-sonnet-4-6"
+  displayName     String
+  maxTokens       Int        @default(8192)
+  costPer1kIn     Float      @default(0.003)
+  costPer1kOut    Float      @default(0.015)
+  supportsVision  Boolean    @default(false)
+  supportsTools   Boolean    @default(true)
+  latencyMs       Int        @default(2000)
+  qualityScore    Int        @default(7) // 1-10
+  bestFor         String[]   // ["writing", "code", "reasoning", "summary"]
+  enabled         Boolean    @default(true)
+  routingRules    AiRoutingRule[]
+  usageLogs       AiUsageLog[]
+}
+
+model AiRoutingRule {
+  id         String  @id @default(cuid())
+  taskType   String  // "chat", "code", "summary", "vision", "translation", etc.
+  modelId    String
+  model      AiModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  priority   Int     @default(0) // higher = preferred
+  conditions Json?   // optional conditions (user plan, context size, etc.)
+  enabled    Boolean @default(true)
+
+  @@unique([taskType, modelId])
+}
+
+model AiUsageLog {
+  id         String   @id @default(cuid())
+  userId     String
+  modelSlug  String
+  modelId    String?
+  model      AiModel? @relation(fields: [modelId], references: [id])
+  tokensIn   Int
+  tokensOut  Int
+  costUsd    Float
+  durationMs Int
+  taskType   String
+  agentId    String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([modelSlug, createdAt])
+}
+
+// ── AGENT SWARM ───────────────────────────────────────────────────
+
+model Agent {
+  id            String     @id @default(cuid())
+  name          String     @unique
+  displayName   String
+  description   String     @db.Text
+  objective     String     @db.Text
+  systemPrompt  String?    @db.Text
+  allowedTools  String[]
+  autonomyLevel Int        @default(3) // 1-7
+  costLimitUsd  Float      @default(0.10)
+  timeoutMs     Int        @default(30000)
+  modelSlug     String?    // preferred model, null = use router
+  enabled       Boolean    @default(true)
+  builtIn       Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  runs          AgentRun[]
+}
+
+model AgentRun {
+  id          String   @id @default(cuid())
+  agentId     String
+  agent       Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  userId      String
+  trigger     String   // "user", "cognitive_loop", "automation", "agent"
+  input       Json
+  output      Json?
+  toolCalls   Json?    // array of tool call records
+  tokensUsed  Int      @default(0)
+  costUsd     Float    @default(0)
+  durationMs  Int      @default(0)
+  status      String   @default("running") // running, completed, failed, cancelled
+  error       String?  @db.Text
+  parentRunId String?  // for agent-spawned-agent chains
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([agentId, status])
+}
+
+// ── KNOWLEDGE GRAPH ───────────────────────────────────────────────
+
+model KGEntity {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // person, company, project, document, place, concept, etc.
+  name      String
+  metadata  Json?
+  embedding Float[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  edgesFrom KGEdge[] @relation("from")
+  edgesTo   KGEdge[] @relation("to")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([userId, name])
+}
+
+model KGEdge {
+  id        String   @id @default(cuid())
+  fromId    String
+  from      KGEntity @relation("from", fields: [fromId], references: [id], onDelete: Cascade)
+  toId      String
+  to        KGEntity @relation("to", fields: [toId], references: [id], onDelete: Cascade)
+  relation  String   // "works_on", "knows", "owns", "attended", "related_to", etc.
+  weight    Float    @default(1.0)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([fromId])
+  @@index([toId])
+}
+
+// ── GOAL ENGINE ───────────────────────────────────────────────────
+
+model Goal {
+  id           String          @id @default(cuid())
+  userId       String
+  title        String
+  reason       String?         @db.Text
+  category     String          @default("geral") // financeira, estudos, carreira, saude, etc.
+  priority     Int             @default(5) // 1-10
+  deadline     DateTime?
+  metric       String?         // "valor_economizado", "kg_perdidos", "aulas_completas"
+  targetValue  Float?
+  currentValue Float           @default(0)
+  status       String          @default("active") // active, paused, completed, abandoned
+  progress     Int             @default(0) // 0-100
+  reviewFreq   String          @default("weekly") // daily, weekly, monthly
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  milestones   GoalMilestone[]
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+model GoalMilestone {
+  id        String    @id @default(cuid())
+  goalId    String
+  goal      Goal      @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  title     String
+  completed Boolean   @default(false)
+  dueAt     DateTime?
+  order     Int       @default(0)
+  note      String?
+
+  @@index([goalId])
+}
+
+// ── PREDICTION ENGINE ─────────────────────────────────────────────
+
+model Prediction {
+  id          String    @id @default(cuid())
+  userId      String
+  type        String    // risk, opportunity
+  category    String    // burnout, budget, deadline, habit, sleep, career, etc.
+  title       String
+  description String    @db.Text
+  probability Float     // 0.0-1.0
+  impact      String    // low, medium, high, critical
+  signals     Json      // evidence that led to this prediction
+  suggestion  String?   @db.Text
+  status      String    @default("active") // active, dismissed, resolved, expired
+  outcome     String?   // correct, incorrect, partial
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, type])
+}
+
+// ── QUEST ENGINE / GAMIFICATION ───────────────────────────────────
+
+model Quest {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String   @db.Text
+  category    String   // foco, disciplina, financas, estudo, saude, social, carreira
+  xpReward    Int      @default(100)
+  steps       Json     // [{title, completed, order}]
+  type        String   @default("daily") // daily, weekly, epic, boss
+  completed   Boolean  @default(false)
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, completed, type])
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  userId      String
+  slug        String
+  title       String
+  description String
+  icon        String
+  rarity      String   @default("common") // common, rare, epic, legendary
+  unlockedAt  DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, slug])
+}
+
+model XPEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  amount    Int
+  source    String   // habit_complete, task_done, focus_session, quest_complete, etc.
+  detail    String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ── UNIVERSAL INBOX ───────────────────────────────────────────────
+
+model UniversalInboxItem {
+  id         String    @id @default(cuid())
+  userId     String
+  source     String    // gmail, slack, discord, whatsapp, system, webhook
+  sourceId   String?   // external ID
+  type       String    // email, message, notification, invoice, delivery, mention
+  title      String
+  preview    String?   @db.Text
+  sender     String?
+  urgency    String    @default("normal") // critical, urgent, normal, low
+  category   String    @default("uncategorized")
+  status     String    @default("unread") // unread, read, acted, archived
+  actionable Boolean   @default(false)
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+  readAt     DateTime?
+  archivedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, urgency])
+  @@index([userId, source])
+}
+
+// ── WORKFLOW ENGINE ───────────────────────────────────────────────
+
+model Workflow {
+  id          String        @id @default(cuid())
+  userId      String
+  name        String
+  description String?       @db.Text
+  trigger     Json          // {type, config}
+  steps       Json          // [{type, config, order}]
+  enabled     Boolean       @default(true)
+  runs        WorkflowRun[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, enabled])
+}
+
+model WorkflowRun {
+  id         String    @id @default(cuid())
+  workflowId String
+  workflow   Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status     String    @default("running") // running, completed, failed, cancelled
+  stepsLog   Json      // [{step, status, output, duration}]
+  error      String?   @db.Text
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+}
+
+// ── SELF REFLECTION ───────────────────────────────────────────────
+
+model Reflection {
+  id            String   @id @default(cuid())
+  userId        String
+  type          String   // daily, weekly, monthly
+  period        String   // "2026-06-06", "2026-W23", "2026-06"
+  insights      Json     // [{pattern, suggestion, priority}]
+  risks         Json     // [{title, probability, impact}]
+  opportunities Json     // [{title, value, action}]
+  suggestions   Json     // [{type, detail, applied}]
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, period])
+}
+
+// ── NOTIFICATION CENTER ───────────────────────────────────────────
+
+model SmartNotification {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  body      String    @db.Text
+  channel   String    @default("push") // push, email, whatsapp, telegram, sms
+  priority  String    @default("normal") // critical, high, normal, low, silent
+  groupKey  String?
+  actionUrl String?
+  module    String?
+  read      Boolean   @default(false)
+  delivered Boolean   @default(false)
+  snoozedTo DateTime?
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, priority])
+  @@index([userId, createdAt])
+}
+
+// ── AUDIT & PRIVACY ───────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String   // create, read, update, delete, execute, approve, deny
+  resource  String   // memory, task, finance, integration, automation, etc.
+  resourceId String?
+  detail    Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([resource, action])
+}
+
+model ConsentLog {
+  id        String   @id @default(cuid())
+  userId    String
+  scope     String   // memory_collection, email_access, calendar_access, etc.
+  granted   Boolean
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, scope])
+}
+
+// ── LIFE TIMELINE ─────────────────────────────────────────────────
+
+model LifeTimelineEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // milestone, decision, achievement, event, memory, etc.
+  title     String
+  detail    String?  @db.Text
+  date      DateTime
+  module    String?
+  entityId  String?
+  icon      String?
+  color     String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+// ── DIGITAL TWIN ──────────────────────────────────────────────────
+
+model DigitalTwinProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  peakHours          Json?    // [9, 10, 11, 14, 15]
+  lowHours           Json?    // [13, 22, 23]
+  procrastinationMap Json?    // {task_type: frequency}
+  spendingPatterns   Json?    // {category: avg_monthly}
+  sleepPatterns      Json?    // {avg_bed, avg_wake, avg_duration}
+  studyPatterns      Json?    // {best_time, best_duration, best_method}
+  emotionalPatterns  Json?    // {triggers, coping, mood_cycle}
+  communicationStyle Json?    // from behavioral profile
+  values             String[]
+  limitations        String[]
+  strengths          String[]
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ── PRICE HISTORY (Shopping OS) ───────────────────────────────────
+
+model PriceHistory {
+  id         String   @id @default(cuid())
+  itemId     String
+  item       WishlistItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  price      Float
+  store      String?
+  createdAt  DateTime @default(now())
+
+  @@index([itemId, createdAt])
+}
+
+// ── PACKAGE TRACKING ──────────────────────────────────────────────
+
+model PackageTracking {
+  id           String   @id @default(cuid())
+  userId       String
+  trackingCode String
+  carrier      String   // correios, fedex, dhl, etc.
+  description  String?
+  status       String   @default("pending") // pending, in_transit, delivered, returned
+  lastUpdate   String?
+  estimatedAt  DateTime?
+  deliveredAt  DateTime?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+// ── FLIGHT TRACKING ───────────────────────────────────────────────
+
+model FlightTracking {
+  id           String    @id @default(cuid())
+  userId       String
+  flightNumber String
+  airline      String?
+  departure    String
+  arrival      String
+  departureAt  DateTime
+  arrivalAt    DateTime?
+  status       String    @default("scheduled")
+  gate         String?
+  terminal     String?
+  delay        Int?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, departureAt])
+}
+
+// ── SAVED RECIPES (Chef) ──────────────────────────────────────────
+
+model SavedRecipe {
+  id           String   @id @default(cuid())
+  userId       String
+  title        String
+  summary      String   @db.Text
+  ingredients  Json
+  steps        Json
+  swaps        Json
+  shoppingList Json
+  prepMinutes  Int      @default(25)
+  servings     Int      @default(2)
+  goal         String   @default("rapido")
+  rating       Int      @default(0)
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ── FINANCE BUDGET ────────────────────────────────────────────────
+
+model FinanceBudget {
+  id        String   @id @default(cuid())
+  userId    String
+  category  String
+  amount    Float
+  month     String   // "2026-06"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category, month])
+  @@index([userId, month])
+}
+
+// ── ROTINAS ───────────────────────────────────────────────────────
+
+model Routine {
+  id          String        @id @default(cuid())
+  userId      String
+  name        String
+  type        String        @default("morning") // morning | evening | custom
+  isActive    Boolean       @default(true)
+  description String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  steps       RoutineStep[]
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+model RoutineStep {
+  id          String  @id @default(cuid())
+  routineId   String
+  title       String
+  durationMin Int     @default(5)
+  icon        String  @default("◎")
+  order       Int
+  routine     Routine @relation(fields: [routineId], references: [id], onDelete: Cascade)
+
+  @@index([routineId, order])
+}
+
+// ── DIÁRIO / JOURNALING ───────────────────────────────────────────
+
+model JournalEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  date      String   // "2026-06-15"
+  q1        String?  @db.Text  // O que está pesando?
+  q2        String?  @db.Text  // Uma coisa boa de hoje?
+  q3        String?  @db.Text  // O que quero amanhã?
+  freeText  String?  @db.Text
+  mood      Int?     // 1-10
+  aiInsight String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+// ── DOC ANALYSIS HISTORY ─────────────────────────────────────────
+
+model DocAnalysis {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  source    String   @default("paste") // paste | drive | upload
+  summary   String   @db.Text
+  risks     Json     // [{level, text}]
+  actions   Json     // [string]
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

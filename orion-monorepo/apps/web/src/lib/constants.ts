@@ -32,6 +32,7 @@ export const ALL_MODULES: readonly OrionModule[] = [
   { id: "whatif",   icon: "◮", label: "WHAT-IF",       sub: "Cenários · Simulações · Planos",    cat: "system",   hasReal: false },
   { id: "lang",     icon: "◷", label: "IDIOMAS",       sub: "Inglês · Prática · Imersão",        cat: "growth",   hasReal: false },
   { id: "mindset",  icon: "◶", label: "MINDSET",       sub: "Motivação · Clareza · Metas",       cat: "wellness", hasReal: false },
+  { id: "dev",      icon: "</>", label: "DEV",          sub: "Workspace · Diffs · Executor",      cat: "system",   hasReal: true  },
   { id: "plugin",   icon: "◴", label: "PLUGINS",       sub: "API · Extensões · Ecosystem",       cat: "system",   hasReal: false },
 ];
 

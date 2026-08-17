@@ -2,46 +2,54 @@ import Anthropic from "@anthropic-ai/sdk";
 import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
 import { captureBrainSnapshot, renderBrainContext } from "../brain/context.service.js";
-
-/* ═══════════════════════════════════════════════════════════════════
-   Morning Brief — autonomia real.
-
-   Todo dia útil às 8h (timezone do usuário aproximado), pra cada
-   usuário com Gmail + Calendar conectados:
-     1. Captura snapshot do mundo do usuário
-     2. Gera briefing executivo com Claude
-     3. Cria ProactiveAlert no banco
-
-   Quando o usuário abre o O.R.I.O.N., o alerta já está lá esperando.
-   Não é o usuário pedindo — é o Jarvis agindo.
-═══════════════════════════════════════════════════════════════════ */
+import { getBehavioralProfile } from "../modules/behavioral-profile.service.js";
 
 const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
-const BRIEF_PROMPT = `Você é o O.R.I.O.N. gerando um Morning Brief pro usuário.
+function buildBriefPrompt(tone: "direct" | "elaborate" | "casual" | "unknown"): string {
+  const toneGuide: Record<string, string> = {
+    direct:    "Seja ultra-direto. 3-4 bullets no maximo. Sem introducao. Vai direto as prioridades.",
+    elaborate: "Pode dar mais contexto. 4-6 linhas. Explique brevemente o porque de cada prioridade.",
+    casual:    "Tom descontraido mas profissional. Como um amigo bem informado te contando o dia.",
+    unknown:   "Tom equilibrado — direto mas nao frio. 3-5 linhas.",
+  };
 
-Estilo: sofisticado, conciso, levemente dramático. Português BR fluido.
-NÃO use markdown extenso. Texto corrido, parágrafos curtos.
+  return `Voce e O.R.I.O.N. gerando o Morning Brief do dia pro usuario.
 
-Você tem o snapshot da manhã (agenda, emails, projetos, memórias).
+ESTILO: ${toneGuide[tone] ?? toneGuide.unknown}
 
-Estrutura ideal (3-6 linhas no total):
-- Saudação curta com leitura do dia
-- 2-3 prioridades concretas baseadas em agenda + emails
-- Pergunta final convidando ação ("Quer que eu prepare X?")
+Voce tem o snapshot completo da manha (agenda, emails urgentes, projetos, alertas, memorias).
 
-NÃO repita os dados crus. SINTETIZE e PRIORIZE.`;
+ESTRUTURA:
+1. Abertura: 1 frase com a leitura geral do dia (denso? tranquilo? critico?)
+2. Prioridades: 2-4 itens concretos baseados em dados reais do snapshot
+3. Pergunta de acao: 1 pergunta especifica convidando o proximo passo
+
+REGRAS:
+- Use dados reais do contexto. NUNCA invente informacoes.
+- Se nao ha eventos ou emails urgentes, diga isso com clareza.
+- Termine sempre com uma acao proposta concreta.
+- Portugues BR natural, sem jargao corporativo.
+- NAO use markdown (sem **, sem #). Texto corrido.`;
+}
 
 async function generateBrief(userId: string): Promise<string | null> {
-  const snap = await captureBrainSnapshot(userId);
+  const [snap, behavioral] = await Promise.all([
+    captureBrainSnapshot(userId).catch(() => null),
+    getBehavioralProfile(userId).catch(() => null),
+  ]);
+
+  if (!snap) return null;
+
   const ctx = renderBrainContext(snap);
+  const tone = (behavioral?.communicationStyle ?? "unknown") as "direct" | "elaborate" | "casual" | "unknown";
 
   const response = await anthropic.messages.create({
     model: env.ANTHROPIC_MODEL,
-    max_tokens: 500,
-    temperature: 0.7,
-    system: BRIEF_PROMPT,
-    messages: [{ role: "user", content: ctx }],
+    max_tokens: 400,
+    temperature: 0.65,
+    system: buildBriefPrompt(tone),
+    messages: [{ role: "user", content: `Estado da manha:\n${ctx}` }],
   });
 
   const text = response.content
@@ -49,46 +57,68 @@ async function generateBrief(userId: string): Promise<string | null> {
     .map((b) => b.text)
     .join("\n")
     .trim();
+
   return text || null;
 }
 
-/** Gera briefing pra um usuário e salva como alerta proativo. */
 export async function runMorningBriefFor(userId: string): Promise<void> {
   try {
     const brief = await generateBrief(userId);
     if (!brief) return;
 
-    await prisma.proactiveAlert.create({
-      data: {
+    const today = new Date().toISOString().slice(0, 10);
+    const dedupKey = `morning_brief_${today}`;
+    const titleDate = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" });
+
+    await prisma.proactiveAlert.upsert({
+      where: { userId_dedupKey: { userId, dedupKey } },
+      create: {
         userId,
         module: "morning_brief",
         icon: "◐",
         color: "#F59E0B",
-        title: "Morning Brief",
+        title: `Morning Brief · ${titleDate}`,
         text: brief,
-        action: "Vamos atacar essa lista agora",
+        action: "Responder no chat",
         priority: "medium",
+        dedupKey,
+        expiresAt: new Date(new Date().setHours(23, 59, 59, 999)),
+      },
+      update: {
+        text: brief,
+        title: `Morning Brief · ${titleDate}`,
       },
     });
-    console.log(`[brief] gerado pra ${userId}: ${brief.slice(0, 80)}…`);
+
+    // Injeta no historico de chat para aparecer proativamente
+    const conv = await prisma.conversation.findFirst({
+      where: { userId, moduleId: null },
+      orderBy: { updatedAt: "desc" },
+    }).catch(() => null);
+
+    if (conv) {
+      await prisma.message.create({
+        data: {
+          conversationId: conv.id,
+          role: "assistant",
+          content: `[MORNING BRIEF]\n\n${brief}`,
+        },
+      }).catch(() => {});
+    }
+
+    console.log(`[brief] gerado pra ${userId}: ${brief.slice(0, 80)}...`);
   } catch (err) {
     console.warn(`[brief] falhou pra ${userId}:`, (err as Error).message);
   }
 }
 
-/** Roda pra TODOS os usuários elegíveis (Gmail + Calendar conectados). */
 export async function runMorningBriefAll(): Promise<void> {
   const users = await prisma.user.findMany({
-    where: {
-      integrations: {
-        some: { provider: "gmail", status: "connected" },
-      },
-    },
-    select: { id: true, name: true },
+    where: { integrations: { some: { status: "connected" } } },
+    select: { id: true },
   });
-
-  console.log(`[brief] disparando pra ${users.length} usuário(s) elegível(eis)`);
-  for (const u of users) {
-    await runMorningBriefFor(u.id);
+  console.log(`[brief] rodando pra ${users.length} usuarios`);
+  for (const user of users) {
+    await runMorningBriefFor(user.id).catch(() => {});
   }
 }

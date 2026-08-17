@@ -43,3 +43,78 @@ export interface UserVitals {
   focus: number;
   mood: number;
 }
+
+export interface IntelligencePreference {
+  key: string;
+  value: string;
+  layer: PreferenceLayer;
+  confidence: number;
+  updatedAt: string;
+}
+
+export interface IntelligenceMemory {
+  id: string;
+  type: "fact" | "preference" | "event" | "feedback" | "project" | "relationship";
+  content: string;
+  importance: number;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IntelligencePattern {
+  patternType: string;
+  data: Record<string, unknown>;
+  confidence: number;
+  updatedAt: string;
+}
+
+export interface IntelligenceProfile {
+  adaptationScore: number;
+  tasteBlend: {
+    current: number;
+    nostalgia: number;
+    exploration: number;
+  };
+  preferences: IntelligencePreference[];
+  memories: IntelligenceMemory[];
+  patterns: IntelligencePattern[];
+  gaps: string[];
+  nextCalibrationPrompts: string[];
+}
+
+export type MemoryType = IntelligenceMemory["type"];
+
+export interface MemoryRecord {
+  id: string;
+  type: MemoryType;
+  content: string;
+  importance: number;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryCreateInput {
+  type: MemoryType;
+  content: string;
+  importance?: number;
+  pinned?: boolean;
+}
+
+export interface MemoryUpdateInput {
+  type?: MemoryType;
+  content?: string;
+  importance?: number;
+  pinned?: boolean;
+}
+
+export interface MemoryListResponse {
+  items: MemoryRecord[];
+  total: number;
+  stats: {
+    pinned: number;
+    byType: Record<MemoryType, number>;
+    averageImportance: number;
+  };
+}

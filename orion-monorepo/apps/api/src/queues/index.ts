@@ -1,19 +1,6 @@
 import { Queue, type QueueOptions } from "bullmq";
 import { redis } from "../db/redis.js";
 
-/* ═══════════════════════════════════════════════════════════════════
-   BullMQ queues centrais do O.R.I.O.N.
-
-   Cada queue tem propósito claro:
-   - automation:  cron jobs recorrentes + dispatch manual
-   - alert:       detecção horária + auto-expiração
-   - memory:      extração/recompute em background (futuro)
-
-   Compartilhamos a conexão Redis com o resto da app. BullMQ exige
-   que o cliente não use enableReadyCheck/maxRetriesPerRequest=null
-   — nosso redis.ts já está com maxRetriesPerRequest:null.
-═══════════════════════════════════════════════════════════════════ */
-
 const defaultOpts: QueueOptions = {
   connection: redis,
   defaultJobOptions: {
@@ -27,40 +14,61 @@ const defaultOpts: QueueOptions = {
 export const automationQueue: Queue = new Queue("automation", defaultOpts);
 export const alertQueue: Queue = new Queue("alert", defaultOpts);
 export const memoryQueue: Queue = new Queue("memory", defaultOpts);
+export const cognitiveQueue: Queue = new Queue("cognitive", defaultOpts);
 
-/** Job names — uma string só pra evitar typos espalhados. */
 export const JOB_NAMES = {
-  /** Disparo de uma Automation pelo seu ID. data: { automationId, manual } */
   RUN_AUTOMATION: "run_automation",
-  /** Verifica timeout de alertas pendentes de confirmação. data: { alertId } */
   CONFIRMATION_TIMEOUT: "confirmation_timeout",
-  /** Detector horário que cria alerts pra todos os usuários elegíveis. */
   DETECT_ALERTS: "detect_alerts",
-  /** Limpa alerts expirados. */
+  PROACTIVE_PULSE: "proactive_pulse",
   EXPIRE_ALERTS: "expire_alerts",
+  COGNITIVE_MICRO: "cognitive_micro",
+  COGNITIVE_PULSE: "cognitive_pulse",
+  COGNITIVE_DEEP: "cognitive_deep",
+  TRIGGER_ENGINE: "trigger_engine",
 } as const;
 
-/** Repeating jobs do sistema — registrados no boot do server. */
 export async function registerRepeatingJobs(): Promise<void> {
-  // Detector de alertas: a cada hora cheia
   await alertQueue.add(
     JOB_NAMES.DETECT_ALERTS,
     {},
-    {
-      repeat: { pattern: "0 * * * *", tz: "America/Sao_Paulo" },
-      jobId: "detect_alerts_hourly", // dedup global
-    },
+    { repeat: { pattern: "0 * * * *", tz: "America/Sao_Paulo" }, jobId: "detect_alerts_hourly" },
   );
 
-  // Expiração de alertas: a cada 15 minutos
   await alertQueue.add(
     JOB_NAMES.EXPIRE_ALERTS,
     {},
-    {
-      repeat: { pattern: "*/15 * * * *", tz: "America/Sao_Paulo" },
-      jobId: "expire_alerts_15min",
-    },
+    { repeat: { pattern: "*/15 * * * *", tz: "America/Sao_Paulo" }, jobId: "expire_alerts_15min" },
   );
 
-  console.log("◉ BullMQ repeating jobs registrados: detect_alerts (1h), expire_alerts (15min)");
+  await cognitiveQueue.add(
+    JOB_NAMES.COGNITIVE_MICRO,
+    { cycle: "micro" },
+    { repeat: { pattern: "*/15 * * * *", tz: "America/Sao_Paulo" }, jobId: "cognitive_micro_15min" },
+  );
+
+  await cognitiveQueue.add(
+    JOB_NAMES.COGNITIVE_PULSE,
+    { cycle: "pulse" },
+    { repeat: { pattern: "5 * * * *", tz: "America/Sao_Paulo" }, jobId: "cognitive_pulse_1h" },
+  );
+
+  await cognitiveQueue.add(
+    JOB_NAMES.COGNITIVE_DEEP,
+    { cycle: "deep" },
+    { repeat: { pattern: "0 7 * * *", tz: "America/Sao_Paulo" }, jobId: "cognitive_deep_7h" },
+  );
+
+  await cognitiveQueue.add(
+    JOB_NAMES.TRIGGER_ENGINE,
+    {},
+    { repeat: { pattern: "*/15 * * * *", tz: "America/Sao_Paulo" }, jobId: "trigger_engine_15min" },
+  );
+
+  console.log(
+    "BullMQ repeating jobs:\n" +
+    "  detect_alerts (1h) | expire_alerts (15min)\n" +
+    "  cognitive_micro (15min) | cognitive_pulse (1h) | cognitive_deep (7h)\n" +
+    "  trigger_engine (15min)"
+  );
 }

@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
+import { env } from "../config/env.js";
 
 /**
  * Erros operacionais que viram resposta JSON sem stacktrace pro cliente.
@@ -44,8 +45,10 @@ export function errorHandler(
   }
 
   console.error("[orion] erro não tratado:", err);
+  const message =
+    env.NODE_ENV === "development" && err.message ? err.message : "Falha interna do núcleo.";
   res.status(500).json({
     ok: false,
-    error: { code: "INTERNAL_ERROR", message: "Falha interna do núcleo." },
+    error: { code: "INTERNAL_ERROR", message },
   });
 }

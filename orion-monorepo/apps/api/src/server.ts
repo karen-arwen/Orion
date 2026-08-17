@@ -19,16 +19,31 @@ import { rehydrateRepeatingJobs } from "./automations/templates.js";
 ═══════════════════════════════════════════════════════════════════ */
 
 const app: Express = express();
+const allowedOrigins = new Set([
+  env.WEB_ORIGIN,
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+]);
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(
   cors({
-    origin: env.WEB_ORIGIN,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS bloqueado para origem: ${origin}`));
+    },
     credentials: true,
   }),
 );
-app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true }));
+const captureRawBody = (req: Request, _res: Response, buf: Buffer): void => {
+  req.rawBody = Buffer.from(buf);
+};
+
+app.use(express.json({ limit: "2mb", verify: captureRawBody }));
+app.use(express.urlencoded({ extended: true, verify: captureRawBody }));
 
 if (env.NODE_ENV === "development") {
   app.use(morgan("dev"));

@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "../middleware/error.js";
 import { googleStartHandler } from "../integrations/google-handlers.js";
+import { notionStartHandler } from "../integrations/notion-handlers.js";
+import { getCapabilityRegistry } from "../integrations/capability-registry.js";
 
 export const integrationsRouter: Router = Router();
 
@@ -11,6 +13,7 @@ export const integrationsRouter: Router = Router();
  * Retorna a URL de consent. O frontend faz window.location = url.
  */
 integrationsRouter.get("/google/start", googleStartHandler);
+integrationsRouter.get("/notion/start", notionStartHandler);
 
 /** Mapa provider → URL pública do MCP server correspondente. */
 const MCP_URLS: Record<string, string> = {
@@ -40,6 +43,15 @@ integrationsRouter.get("/", async (req: Request, res: Response, next: NextFuncti
       },
     });
     res.json({ ok: true, data: list });
+  } catch (err) {
+    next(err);
+  }
+});
+
+integrationsRouter.get("/capabilities", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "SessÃ£o necessÃ¡ria.");
+    res.json({ ok: true, data: await getCapabilityRegistry(req.user.id) });
   } catch (err) {
     next(err);
   }

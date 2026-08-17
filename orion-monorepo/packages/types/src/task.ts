@@ -1,10 +1,7 @@
 export type TaskStatus = "todo" | "doing" | "done" | "archived";
-
-/** 1 = baixa energia, 2 = normal, 3 = energia alta requerida */
 export type EnergyLevel = 1 | 2 | 3;
-
-/** 1 = baixa, 2 = normal, 3 = alta */
 export type Priority = 1 | 2 | 3;
+export type RecurrenceRule = "daily" | "weekly" | "monthly" | "weekdays";
 
 export interface Task {
   id: string;
@@ -18,6 +15,11 @@ export interface Task {
   dueAt: string | null;
   estMinutes: number | null;
   projectId: string | null;
+  parentId: string | null;
+  isRecurring: boolean;
+  recurrenceRule: RecurrenceRule | null;
+  completedAt: string | null;
+  subtasks?: Task[];
   createdAt: string;
   updatedAt: string;
 }
@@ -32,6 +34,9 @@ export interface TaskCreateInput {
   dueAt?: string;
   estMinutes?: number;
   projectId?: string;
+  parentId?: string;
+  isRecurring?: boolean;
+  recurrenceRule?: RecurrenceRule;
 }
 
 export interface TaskUpdateInput extends Partial<TaskCreateInput> {

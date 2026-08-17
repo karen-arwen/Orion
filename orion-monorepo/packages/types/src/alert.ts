@@ -13,3 +13,28 @@ export interface ProactiveAlert {
   dismissed: boolean;
   createdAt: string;
 }
+
+export interface AlertScanResult {
+  detection: {
+    created: number;
+    checked: number;
+  };
+  pulse: {
+    checked: number;
+    routed: number;
+    skipped: number;
+    results: Array<{
+      title: string;
+      status: "executed" | "decision" | "blocked";
+      moduleId: string;
+      reason?: string;
+      decisionId?: string;
+      execution?: {
+        type: string;
+        label: string;
+        entityId: string | null;
+        summary: string;
+      };
+    }>;
+  };
+}

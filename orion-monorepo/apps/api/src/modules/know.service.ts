@@ -118,15 +118,31 @@ export function isLessonRequest(text: string): boolean {
 }
 
 function parseJsonOutput<T>(raw: string): T | null {
-  const cleaned = raw
-    .replace(/^```(?:json)?/i, "")
-    .replace(/```$/i, "")
+  // Strategy 1: direct parse
+  try { return JSON.parse(raw.trim()) as T; } catch { /* next */ }
+
+  // Strategy 2: strip markdown fences
+  const fenceStripped = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
     .trim();
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    return null;
+  try { return JSON.parse(fenceStripped) as T; } catch { /* next */ }
+
+  // Strategy 3: extract first { ... } block
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    try { return JSON.parse(raw.slice(firstBrace, lastBrace + 1)) as T; } catch { /* next */ }
   }
+
+  // Strategy 4: extract first [ ... ] block
+  const firstBracket = raw.indexOf("[");
+  const lastBracket = raw.lastIndexOf("]");
+  if (firstBracket >= 0 && lastBracket > firstBracket) {
+    try { return JSON.parse(raw.slice(firstBracket, lastBracket + 1)) as T; } catch { /* next */ }
+  }
+
+  return null;
 }
 
 export interface CreateLessonInput {
@@ -166,9 +182,34 @@ export async function createLesson(input: CreateLessonInput): Promise<LessonCrea
     .join("")
     .trim();
 
-  const material = parseJsonOutput<LessonMaterial>(matText);
+  let material = parseJsonOutput<LessonMaterial>(matText);
+
+  // Fallback: se o parsing falhou, tenta de novo pedindo JSON explicitamente
   if (!material || !Array.isArray(material.objectives) || !Array.isArray(material.topics)) {
-    throw new Error("Não consegui montar o material estruturado. Tente um tópico mais específico.");
+    const retryResponse = await anthropic.messages.create({
+      model: env.ANTHROPIC_MODEL,
+      max_tokens: 3000,
+      temperature: 0.3,
+      system: "Converta o texto abaixo em JSON valido com a estrutura: {objectives:string[], topics:[{title,explanation}], examples:[{title,body}], exercises:[{prompt,hint,answer}], next:string[]}. Devolva SOMENTE o JSON, sem markdown.",
+      messages: [{ role: "user", content: matText }],
+    });
+    const retryText = retryResponse.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+    material = parseJsonOutput<LessonMaterial>(retryText);
+  }
+
+  if (!material || !Array.isArray(material.objectives) || !Array.isArray(material.topics)) {
+    // Ultimate fallback: build a minimal lesson from the raw text
+    material = {
+      objectives: ["Compreender os fundamentos do topico solicitado"],
+      topics: [{ title: input.topic, explanation: matText.slice(0, 2000) }],
+      examples: [],
+      exercises: [],
+      next: ["Aprofundar no topico"],
+    };
   }
 
   // 2. Gera tags

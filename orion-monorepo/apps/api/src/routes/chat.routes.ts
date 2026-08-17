@@ -6,16 +6,28 @@ import { memoryService } from "../memory/memory.service.js";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "../middleware/error.js";
 
+import { chatRateLimit, aiHeavyRateLimit } from "../middleware/rate-limit.js";
+import { analyzeFile } from "../modules/file-analysis.service.js";
+import path from "node:path";
+import { promises as fs } from "node:fs";
+
 export const chatRouter: Router = Router();
 
 const sendSchema = z.object({
-  message: z.string().min(1).max(8000),
+  message: z.string().min(1).max(50_000),
   conversationId: z.string().optional(),
   module: z.string().optional(),
 });
 
+const feedbackSchema = z.object({
+  message: z.string().min(1).max(8000),
+  helpful: z.boolean(),
+  reason: z.string().max(400).optional(),
+  conversationId: z.string().optional(),
+});
+
 /** POST /v1/chat — envia uma mensagem ao núcleo O.R.I.O.N. */
-chatRouter.post("/", async (req: Request, res: Response, next: NextFunction) => {
+chatRouter.post("/", chatRateLimit, async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
     const body = sendSchema.parse(req.body);
@@ -31,11 +43,39 @@ chatRouter.post("/", async (req: Request, res: Response, next: NextFunction) => 
  * Se a IA precisar chamar ferramenta, emite evento "fallback_to_tools"
  * e o frontend refaz a mesma mensagem via POST /v1/chat normal.
  */
-chatRouter.post("/stream", async (req: Request, res: Response, next: NextFunction) => {
+chatRouter.post("/stream", chatRateLimit, async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
     const body = sendSchema.parse(req.body);
     await streamChat({ userId: req.user.id, ...body, res });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /v1/chat/feedback — grava reação explícita como memória de aprendizado. */
+chatRouter.post("/feedback", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
+    const body = feedbackSchema.parse(req.body);
+    const sentiment = body.helpful ? "aprovou" : "rejeitou";
+    const reason = body.reason ? ` Motivo: ${body.reason}` : "";
+    await prisma.memory.create({
+      data: {
+        userId: req.user.id,
+        type: "feedback",
+        content: `Usuário ${sentiment} uma resposta do O.R.I.O.N.${reason} Resposta: ${body.message.slice(0, 1200)}`,
+        importance: body.helpful ? 0.65 : 0.85,
+        embedding: [],
+      },
+    });
+    if (body.conversationId) {
+      await prisma.conversation.updateMany({
+        where: { id: body.conversationId, userId: req.user.id },
+        data: { updatedAt: new Date() },
+      });
+    }
+    res.json({ ok: true, data: { saved: true } });
   } catch (err) {
     next(err);
   }
@@ -64,9 +104,18 @@ chatRouter.get("/conversations", async (req: Request, res: Response, next: NextF
     const list = await prisma.conversation.findMany({
       where: { userId: req.user.id },
       orderBy: { updatedAt: "desc" },
-      take: 30,
+      take: 50,
+      include: { _count: { select: { messages: true } } },
     });
-    res.json({ ok: true, data: list });
+    const mapped = list.map(c => ({
+      id: c.id,
+      title: c.title,
+      moduleId: c.moduleId,
+      updatedAt: c.updatedAt,
+      createdAt: c.createdAt,
+      messageCount: c._count.messages,
+    }));
+    res.json({ ok: true, data: mapped });
   } catch (err) {
     next(err);
   }
@@ -85,4 +134,40 @@ chatRouter.delete("/:id", async (req: Request, res: Response, next: NextFunction
   } catch (err) {
     next(err);
   }
+});
+
+
+// ─── File Upload + Analysis ───────────────────────────────────────
+
+chatRouter.post("/analyze-file", aiHeavyRateLimit, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) { res.status(401).json({ ok: false }); return; }
+
+    // Expect base64 encoded file content + filename
+    const { filename, content: fileContent, prompt } = req.body as {
+      filename: string;
+      content: string;      // base64 encoded
+      prompt?: string;
+    };
+
+    if (!filename || !fileContent) {
+      res.status(400).json({ ok: false, error: "filename and content required" });
+      return;
+    }
+
+    // Write to temp file
+    const tmpDir = path.join(process.cwd(), ".tmp-uploads");
+    await fs.mkdir(tmpDir, { recursive: true });
+    const tmpPath = path.join(tmpDir, `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`);
+
+    const buffer = Buffer.from(fileContent, "base64");
+    await fs.writeFile(tmpPath, buffer);
+
+    try {
+      const result = await analyzeFile(tmpPath, prompt);
+      res.json({ ok: true, data: result });
+    } finally {
+      await fs.unlink(tmpPath).catch(() => {});
+    }
+  } catch (err) { next(err); }
 });

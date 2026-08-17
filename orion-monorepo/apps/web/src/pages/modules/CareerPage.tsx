@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ModuleShell } from "../../components/layout/ModuleShell.js";
+import { ModuleChat } from "../../components/panels/ModuleChat.js";
 import { useCareerCoach } from "../../hooks/modules/useCareer.js";
 
 type Mode = "portfolio" | "entrevista" | "plano_90" | "review" | "livre";
@@ -194,6 +195,13 @@ export function CareerPage(): JSX.Element {
           ))}
         </div>
       </div>
+      <ModuleChat
+        module="career"
+        label="CARREIRA"
+        color="#F59E0B"
+        welcome="Posso ajudar com curriculo, preparacao para entrevistas, plano de carreira, analise de vagas e desenvolvimento profissional."
+        suggestions={["Melhorar meu curriculo", "Preparar entrevista", "Plano de carreira", "Vagas na minha area"]}
+      />
     </ModuleShell>
   );
 }

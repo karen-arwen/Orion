@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import type { Integration } from "@orion/types";
+import type { CapabilityConnector, Integration } from "@orion/types";
 import { NeuralRing } from "../components/visual/NeuralRing.js";
+import { StatusDot } from "../components/visual/StatusDot.js";
 import { api, ApiClientError } from "../lib/api.js";
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -25,21 +26,55 @@ const GOOGLE_PROVIDERS = [
   { id: "gdrive", label: "GOOGLE DRIVE", sub: "Buscar · Ler · Analisar", color: "#0F9D58" },
 ] as const;
 
+
+// ── Novos conectores OAuth ────────────────────────────────────────
+interface OAuthConnector {
+  id: string;
+  label: string;
+  sub: string;
+  color: string;
+  icon: string;
+  tier: 1 | 2;
+  category: string;
+}
+
+const OAUTH_CONNECTORS: OAuthConnector[] = [
+  // Tier 1
+  { id: "microsoft", label: "MICROSOFT", sub: "Outlook · Teams · OneDrive", color: "#00A4EF", icon: "⊞", tier: 1, category: "Produtividade" },
+  { id: "github", label: "GITHUB", sub: "Repos · Issues · PRs · Actions", color: "#6E5494", icon: "◈", tier: 1, category: "Dev" },
+  { id: "notion", label: "NOTION", sub: "Segundo cérebro · Wikis · Docs", color: "#FFFFFF", icon: "◻", tier: 1, category: "Produtividade" },
+  { id: "slack", label: "SLACK", sub: "Canais · DMs · Histórico", color: "#4A154B", icon: "◇", tier: 1, category: "Comunicação" },
+  { id: "atlassian", label: "ATLASSIAN", sub: "Jira · Confluence · Trello", color: "#0052CC", icon: "◆", tier: 1, category: "Dev / Projetos" },
+  // Tier 2
+  { id: "discord", label: "DISCORD", sub: "Servidores · DMs · Comunidades", color: "#5865F2", icon: "◉", tier: 2, category: "Comunicação" },
+  { id: "figma", label: "FIGMA", sub: "Arquivos · Times · Protótipos", color: "#F24E1E", icon: "◑", tier: 2, category: "Design" },
+  { id: "strava", label: "STRAVA", sub: "Atividades · Runs · Treinos", color: "#FC4C02", icon: "◒", tier: 2, category: "Saúde / Fitness" },
+  { id: "mercadolivre", label: "MERCADO LIVRE", sub: "Compras · Vendas · Pedidos", color: "#FFE600", icon: "◓", tier: 2, category: "E-commerce" },
+  { id: "linear", label: "LINEAR", sub: "Issues · Projetos · Sprints", color: "#5E6AD2", icon: "◔", tier: 2, category: "Dev / Projetos" },
+  { id: "todoist", label: "TODOIST", sub: "Tarefas · Projetos · Lembretes", color: "#DB4035", icon: "◕", tier: 2, category: "Produtividade" },
+  { id: "spotify", label: "SPOTIFY", sub: "Busca · Playlists · Recomendações", color: "#1DB954", icon: "◖", tier: 2, category: "Mídia" },
+];
+
 const PRIMARY = "#00D4FF";
 
 export function IntegrationsPage(): JSX.Element {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [capabilities, setCapabilities] = useState<CapabilityConnector[]>([]);
   const [status, setStatus] = useState<ConnectStatus>({ kind: "idle" });
   const [search, setSearch] = useSearchParams();
   const calloutStatus = search.get("status");
   const calloutReason = search.get("reason");
+  const connectedProvider = search.get("connected");  // do OAuth universal handler
+  const oauthError = search.get("error");              // erro do OAuth universal
 
   const refresh = async (): Promise<void> => {
     try {
-      const list = await api.listIntegrations();
+      const [list, caps] = await Promise.all([api.listIntegrations(), api.listCapabilities()]);
       setIntegrations(list);
+      setCapabilities(caps);
     } catch {
       setIntegrations([]);
+      setCapabilities([]);
     }
   };
 
@@ -47,7 +82,24 @@ export function IntegrationsPage(): JSX.Element {
     void refresh();
   }, []);
 
-  // Toast de callback OAuth: limpa a URL depois
+  // Toast de callback OAuth universal (?connected=provider ou ?error=...)
+  useEffect(() => {
+    if (connectedProvider || oauthError) {
+      void refresh();
+      const t = window.setTimeout(() => {
+        setSearch((p) => {
+          p.delete("connected");
+          p.delete("error");
+          p.delete("provider");
+          return p;
+        });
+      }, 4000);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [connectedProvider, oauthError, setSearch]);
+
+  // Toast de callback OAuth Google: limpa a URL depois
   useEffect(() => {
     if (calloutStatus === "connected") {
       void refresh();
@@ -79,6 +131,22 @@ export function IntegrationsPage(): JSX.Element {
     }
   };
 
+  const handleNotionConnect = async (): Promise<void> => {
+    setStatus({ kind: "loading" });
+    try {
+      const { url } = await api.startNotionConnect();
+      window.location.href = url;
+    } catch (err) {
+      const msg =
+        err instanceof ApiClientError
+          ? err.code === "OAUTH_NOT_CONFIGURED"
+            ? "Servidor sem OAuth Notion. Crie uma public connection e preencha NOTION_CLIENT_ID/SECRET."
+            : err.message
+          : "Falha desconhecida ao iniciar Notion.";
+      setStatus({ kind: "error", message: msg });
+    }
+  };
+
   const handleDisconnect = async (provider: string): Promise<void> => {
     try {
       await api.disconnectIntegration(provider);
@@ -99,6 +167,7 @@ export function IntegrationsPage(): JSX.Element {
   const allConnected =
     googleEntries.length === GOOGLE_PROVIDERS.length &&
     googleEntries.every((i) => i.status === "connected");
+  const anyConnected = googleEntries.some((i) => i.status === "connected");
   const anyStale = googleEntries.some((i) => i.status !== "connected");
   const connectionState: "all_connected" | "mixed_or_stale" | "empty" =
     allConnected
@@ -106,6 +175,22 @@ export function IntegrationsPage(): JSX.Element {
       : googleEntries.length === 0
       ? "empty"
       : "mixed_or_stale";
+
+
+  const connectOAuth = (provider: string): void => {
+    const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+    window.location.href = `${apiUrl}/v1/integrations/oauth/${provider}/connect?returnTo=/integrations`;
+  };
+
+  const disconnectOAuth = async (provider: string): Promise<void> => {
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL ?? "http://localhost:3001"}/v1/integrations/oauth/${provider}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      await refresh();
+    } catch { /* noop */ }
+  };
 
   return (
     <div
@@ -145,7 +230,39 @@ export function IntegrationsPage(): JSX.Element {
           </Link>
         </div>
 
-        {/* ── Toast de callback ── */}
+        {/* ── Toast OAuth universal ── */}
+        {connectedProvider && (
+          <div
+            style={{
+              padding: "12px 16px",
+              marginBottom: 20,
+              background: "linear-gradient(135deg, rgba(16,185,129,0.12), transparent)",
+              border: "1px solid rgba(16,185,129,0.35)",
+              borderRadius: 8,
+              color: "#10B981",
+              fontSize: 12,
+            }}
+          >
+            ✓ {connectedProvider.toUpperCase()} conectado com sucesso. Tokens serão renovados automaticamente.
+          </div>
+        )}
+        {oauthError && !connectedProvider && (
+          <div
+            style={{
+              padding: "12px 16px",
+              marginBottom: 20,
+              background: "linear-gradient(135deg, rgba(239,68,68,0.12), transparent)",
+              border: "1px solid rgba(239,68,68,0.35)",
+              borderRadius: 8,
+              color: "#EF4444",
+              fontSize: 12,
+            }}
+          >
+            ✗ Falha OAuth: {oauthError.replace(/_/g, " ")}
+          </div>
+        )}
+
+        {/* ── Toast de callback Google ── */}
         {calloutStatus === "connected" && (
           <div
             style={{
@@ -255,7 +372,11 @@ export function IntegrationsPage(): JSX.Element {
               )}
               {(connectionState === "all_connected" || connectionState === "mixed_or_stale") && (
                 <button
-                  onClick={() => GOOGLE_PROVIDERS.forEach((p) => void handleDisconnect(p.id))}
+                  onClick={() => {
+                    void Promise.all(GOOGLE_PROVIDERS.map((p) => api.disconnectIntegration(p.id)))
+                      .then(refresh)
+                      .catch(refresh);
+                  }}
                   className="hud-label"
                   style={{
                     padding: "8px 14px",
@@ -351,6 +472,140 @@ export function IntegrationsPage(): JSX.Element {
           <br />
           Você autoriza uma vez. O O.R.I.O.N. cuida do resto.
         </div>
+        <section className="integration-capabilities">
+          <div style={{ marginBottom: 12 }}>
+            <div className="hud-label" style={{ color: PRIMARY, fontSize: 11 }}>
+              CAPABILITY REGISTRY
+            </div>
+            <p>O que o Orion pode acessar hoje, o que ja tem credencial e o que ainda precisa configurar.</p>
+          </div>
+          <div className="capability-grid">
+            {capabilities.map((cap) => {
+              const statusColor =
+                cap.status === "connected"
+                  ? "#10B981"
+                  : cap.status === "configured"
+                  ? "#F59E0B"
+                  : cap.status === "planned"
+                  ? "#64748B"
+                  : "#EF4444";
+              return (
+                <article key={cap.provider} className="capability-card" style={{ borderColor: `${statusColor}35` }}>
+                  <div className="capability-card-head">
+                    <div>
+                      <span className="hud-label" style={{ color: statusColor, fontSize: 8 }}>
+                        {cap.status}
+                      </span>
+                      <strong>{cap.label}</strong>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      {cap.provider === "notion" && cap.status !== "connected" && (
+                        <button
+                          type="button"
+                          onClick={() => void handleNotionConnect()}
+                          className="orion-link-button"
+                          disabled={status.kind === "loading"}
+                        >
+                          CONECTAR
+                        </button>
+                      )}
+                      {cap.status === "connected" && cap.provider === "notion" && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDisconnect("notion").then(refresh)}
+                          className="orion-link-button"
+                        >
+                          DESCONECTAR
+                        </button>
+                      )}
+                      <a href={cap.docsUrl} target="_blank" rel="noreferrer" className="orion-link-button">
+                        DOCS
+                      </a>
+                    </div>
+                  </div>
+                  <p>{cap.notes}</p>
+                  <div className="capability-actions">
+                    {cap.actions.slice(0, 3).map((action) => (
+                      <span key={action.id} title={action.requiresDecision ? "Passa pela Decision Inbox" : "Leitura segura"}>
+                        {action.kind} · {action.label}
+                      </span>
+                    ))}
+                  </div>
+                  <small>
+                    Setup: {cap.setupKind} · {cap.envVars.length > 0 ? cap.envVars.join(", ") : "sem env"}
+                  </small>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+        {/* ── Novos Conectores OAuth ──────────────────────────────── */}
+        <section style={{ marginTop: "32px" }}>
+          <h2 style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#4B5563", letterSpacing: "0.15em", marginBottom: "16px" }}>
+            CONECTORES OAUTH · {OAUTH_CONNECTORS.length} DISPONÍVEIS
+          </h2>
+          {(["Produtividade", "Dev", "Dev / Projetos", "Comunicação", "Design", "Saúde / Fitness", "E-commerce", "Mídia"] as const).map((category) => {
+            const group = OAUTH_CONNECTORS.filter((c) => c.category === category);
+            if (group.length === 0) return null;
+            return (
+              <div key={category} style={{ marginBottom: "20px" }}>
+                <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#374151", letterSpacing: "0.12em", marginBottom: "8px" }}>
+                  {category.toUpperCase()}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "8px" }}>
+                  {group.map((conn) => {
+                    const integration = integrations.find((i) => i.provider === conn.id);
+                    const isConnected = integration?.status === "connected";
+                    return (
+                      <div key={conn.id} style={{
+                        background: "#0a0f1a",
+                        border: `1px solid ${isConnected ? conn.color + "40" : "#1F2937"}`,
+                        borderLeft: `3px solid ${isConnected ? conn.color : "#1F2937"}`,
+                        borderRadius: "4px",
+                        padding: "12px 14px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span style={{ fontSize: "14px", color: conn.color }}>{conn.icon}</span>
+                            <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "11px", color: "#E2E8F0", letterSpacing: "0.06em" }}>
+                              {conn.label}
+                            </span>
+                          </div>
+                          {isConnected && (
+                            <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#10B981" }}>●</span>
+                          )}
+                        </div>
+                        <div style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: "9px", color: "#4B5563", letterSpacing: "0.04em" }}>
+                          {conn.sub}
+                        </div>
+                        <button
+                          onClick={() => isConnected ? disconnectOAuth(conn.id) : connectOAuth(conn.id)}
+                          style={{
+                            marginTop: "4px",
+                            padding: "4px 10px",
+                            border: `1px solid ${isConnected ? "#EF444440" : conn.color + "40"}`,
+                            borderRadius: "2px",
+                            background: isConnected ? "#EF444408" : `${conn.color}08`,
+                            color: isConnected ? "#EF4444" : conn.color,
+                            fontFamily: "'Share Tech Mono', monospace",
+                            fontSize: "9px",
+                            letterSpacing: "0.08em",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {isConnected ? "DESCONECTAR" : "CONECTAR"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </section>
       </div>
     </div>
   );

@@ -33,3 +33,11 @@ ReactDOM.createRoot(rootEl).render(
     </ClerkProvider>
   </React.StrictMode>,
 );
+
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    void navigator.serviceWorker.register("/sw.js").catch((err) => {
+      console.warn("[pwa] service worker registration failed", err);
+    });
+  });
+}

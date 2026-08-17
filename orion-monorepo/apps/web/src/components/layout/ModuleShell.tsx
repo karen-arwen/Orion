@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useUser } from "@clerk/clerk-react";
 import type { UserProfile } from "@orion/types";
 import { useUserStore } from "../../stores/user.store.js";
@@ -14,11 +15,6 @@ interface ModuleShellProps {
   children: ReactNode;
 }
 
-/**
- * Shell consistente pra páginas de módulo.
- * Cabeçalho com identidade do módulo + breadcrumb pro hub.
- * Hidrata o usuário se ainda não estiver no store.
- */
 export function ModuleShell({ icon, label, sub, color, children }: ModuleShellProps): JSX.Element {
   const { user } = useUser();
   const { profile, hydrate } = useUserStore();
@@ -56,7 +52,10 @@ export function ModuleShell({ icon, label, sub, color, children }: ModuleShellPr
     >
       <Particles color={color} />
 
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
         style={{
           position: "relative",
           zIndex: 5,
@@ -103,12 +102,20 @@ export function ModuleShell({ icon, label, sub, color, children }: ModuleShellPr
               textDecoration: "none",
             }}
           >
-            ← NEXUS
+            {"<-"} NEXUS
           </Link>
         </div>
-      </div>
+      </motion.div>
 
-      <div style={{ position: "relative", zIndex: 5, padding: "24px 32px" }}>{children}</div>
+      <motion.div
+        className="module-shell-content"
+        style={{ position: "relative", zIndex: 5, paddingBottom: 60 }}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, delay: 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}
+      >
+        {children}
+      </motion.div>
     </div>
   );
 }

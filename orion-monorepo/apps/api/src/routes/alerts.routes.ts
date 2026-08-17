@@ -2,6 +2,8 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { z } from "zod";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "../middleware/error.js";
+import { detectForUser } from "../alerts/detector.js";
+import { runProactivePulseForUser } from "../proactive/pulse.js";
 
 export const alertsRouter: Router = Router();
 
@@ -63,6 +65,28 @@ alertsRouter.get("/all", async (req: Request, res: Response, next: NextFunction)
 });
 
 /** POST /v1/alerts/:id/dismiss — ignora (feedback negativo implícito). */
+alertsRouter.post("/scan", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "SessÃ£o necessÃ¡ria.");
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { mode: true, profile: { select: { timezone: true } } },
+    });
+    const detection = await detectForUser({
+      userId: req.user.id,
+      mode: user?.mode ?? "NORMAL",
+      timezone: user?.profile?.timezone ?? "America/Sao_Paulo",
+    });
+    const pulse = await runProactivePulseForUser({
+      userId: req.user.id,
+      timezone: user?.profile?.timezone ?? "America/Sao_Paulo",
+    });
+    res.json({ ok: true, data: { detection, pulse } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 alertsRouter.post("/:id/dismiss", async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");

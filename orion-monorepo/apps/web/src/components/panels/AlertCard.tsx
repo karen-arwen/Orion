@@ -6,15 +6,17 @@ interface AlertCardProps {
   onDismiss: () => void;
 }
 
-const PRIORITY_META: Record<AlertPriority, { label: string; glow: string }> = {
+type PriorityMeta = { label: string; glow: string };
+const PRIORITY_META: Record<AlertPriority, PriorityMeta> = {
   low: { label: "LOW", glow: "" },
   medium: { label: "MED", glow: "" },
   high: { label: "HIGH", glow: " · pulse" },
   critical: { label: "CRIT", glow: " · pulse" },
 };
+const DEFAULT_META: PriorityMeta = { label: "MED", glow: "" };
 
 export function AlertCard({ alert, onApprove, onDismiss }: AlertCardProps): JSX.Element {
-  const meta = PRIORITY_META[alert.priority] ?? PRIORITY_META.medium;
+  const meta: PriorityMeta = PRIORITY_META[alert.priority] ?? DEFAULT_META;
   const isHigh = alert.priority === "high" || alert.priority === "critical";
 
   return (

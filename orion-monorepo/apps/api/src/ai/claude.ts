@@ -46,7 +46,7 @@ function isToolUse(block: AnthropicContentBlock): block is AnthropicToolUseBlock
 }
 
 export async function callClaude(opts: ChatCallOptions): Promise<ChatCallResult> {
-  const { systemPrompt, messages, toolContext, maxTokens = 2000, temperature = 0.7 } = opts;
+  const { systemPrompt, messages, toolContext, maxTokens = 8192, temperature = 0.7 } = opts;
 
   // Conversa que vai pro Claude (vamos crescendo a cada iteração de tool use)
   const conversation: AnthropicMsgParam[] = messages

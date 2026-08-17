@@ -129,3 +129,62 @@ export async function listRecentDriveFiles(
   if (!token) throw new Error("Token do Drive inválido");
   return driveSearch(token, query ?? "", 20);
 }
+
+/* ─── PDF Upload + História de Análises ─── */
+
+/** Extrai texto de um buffer PDF usando pdf-parse. */
+export async function extractPdfText(buffer: Buffer): Promise<string> {
+  // Dynamic import to avoid ESM/CJS issues at startup
+  const pdfParse = (await import("pdf-parse")).default as (buf: Buffer) => Promise<{ text: string }>;
+  const data = await pdfParse(buffer);
+  return data.text.trim();
+}
+
+/** Analisa buffer de PDF e persiste análise no banco (UserPattern). */
+export async function analyzePdfBuffer(
+  userId: string,
+  fileName: string,
+  buffer: Buffer,
+): Promise<DocAnalysis> {
+  const text = await extractPdfText(buffer);
+  if (!text || text.length < 20) throw new Error("PDF sem texto extraível");
+  const analysis = await analyzeText({ userId, text });
+
+  // Persist in UserPattern with patternType "doc_analysis_<timestamp>"
+  const key = `doc_analysis_${Date.now()}`;
+  await prisma.userPattern.upsert({
+    where: { userId_patternType: { userId, patternType: key } },
+    update: { patternValue: JSON.stringify({ fileName, analysis, createdAt: new Date().toISOString() }) },
+    create: { userId, patternType: key, patternValue: JSON.stringify({ fileName, analysis, createdAt: new Date().toISOString() }) },
+  });
+
+  return analysis;
+}
+
+export interface DocHistoryEntry {
+  id: string;
+  fileName: string;
+  analysis: DocAnalysis;
+  createdAt: string;
+}
+
+/** Lista as últimas análises de documentos do usuário. */
+export async function listDocHistory(userId: string, limit = 20): Promise<DocHistoryEntry[]> {
+  const rows = await prisma.userPattern.findMany({
+    where: { userId, patternType: { startsWith: "doc_analysis_" } },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  return rows.flatMap(row => {
+    try {
+      const parsed = JSON.parse(row.patternValue) as { fileName: string; analysis: DocAnalysis; createdAt: string };
+      return [{ id: row.id, fileName: parsed.fileName, analysis: parsed.analysis, createdAt: parsed.createdAt }];
+    } catch { return []; }
+  });
+}
+
+/** Deleta uma análise do histórico. */
+export async function deleteDocAnalysis(userId: string, patternId: string): Promise<void> {
+  await prisma.userPattern.deleteMany({ where: { id: patternId, userId } });
+}

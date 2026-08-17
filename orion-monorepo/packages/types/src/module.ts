@@ -32,6 +32,7 @@ export type ModuleId =
   | "whatif"
   | "lang"
   | "mindset"
+  | "dev"
   | "plugin";
 
 export interface OrionModule {

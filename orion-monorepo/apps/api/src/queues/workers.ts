@@ -3,13 +3,10 @@ import { redis } from "../db/redis.js";
 import { JOB_NAMES } from "./index.js";
 import { runAutomation } from "../automations/engine.js";
 import { detectForAllUsers, expireOldAlerts } from "../alerts/detector.js";
-
-/* ═══════════════════════════════════════════════════════════════════
-   Workers BullMQ — rodam no MESMO processo do server.
-
-   Decisão: 1 worker por queue. Concurrency limitada pra não estourar
-   limites das APIs externas (Anthropic, Google).
-═══════════════════════════════════════════════════════════════════ */
+import { runCognitiveLoopForAll } from "../proactive/cognitive-loop.js";
+import type { CycleType } from "../proactive/cognitive-loop.js";
+import { runTriggerEngineForAll } from "../proactive/trigger-engine.js";
+import { processRetryQueue } from "../decisions/retry-engine.js";
 
 interface AutomationJobData {
   automationId: string;
@@ -17,10 +14,13 @@ interface AutomationJobData {
   confirmed?: boolean;
 }
 
+interface CognitiveJobData {
+  cycle: CycleType;
+}
+
 let _workers: Worker[] = [];
 
 export function startWorkers(): void {
-  // ── Automation worker ─────────────────────────────────────────
   const automationWorker = new Worker(
     "automation",
     async (job: Job<AutomationJobData>) => {
@@ -35,12 +35,10 @@ export function startWorkers(): void {
     },
     { connection: redis, concurrency: 3 },
   );
-
   automationWorker.on("failed", (job, err) => {
     console.warn(`[worker:automation] ${job?.id} falhou:`, err.message);
   });
 
-  // ── Alert worker ──────────────────────────────────────────────
   const alertWorker = new Worker(
     "alert",
     async (job: Job) => {
@@ -54,32 +52,55 @@ export function startWorkers(): void {
         if (result.expired > 0) console.log(`[worker:alert] expirou ${result.expired} alertas`);
         return result;
       }
-      if (job.name === JOB_NAMES.CONFIRMATION_TIMEOUT) {
-        // Timeout de confirmação — placeholder (engine já trata via expiresAt do alert)
-        return { skipped: true };
-      }
       return { skipped: true };
     },
     { connection: redis, concurrency: 1 },
   );
-
   alertWorker.on("failed", (job, err) => {
     console.warn(`[worker:alert] ${job?.id} falhou:`, err.message);
   });
 
-  // ── Memory worker (placeholder pra futuras tarefas pesadas) ───
+  const cognitiveWorker = new Worker(
+    "cognitive",
+    async (job: Job<CognitiveJobData>) => {
+      if (
+        job.name === JOB_NAMES.COGNITIVE_MICRO ||
+        job.name === JOB_NAMES.COGNITIVE_PULSE ||
+        job.name === JOB_NAMES.COGNITIVE_DEEP
+      ) {
+        const cycle = job.data?.cycle;
+        if (!cycle) return { skipped: true };
+        const result = await runCognitiveLoopForAll(cycle);
+        console.log(
+          `[worker:cognitive] ${cycle}: scanned=${result.scanned} executed=${result.executed} actions=${result.totalActions}`
+        );
+        return result;
+      }
+      if (job.name === JOB_NAMES.TRIGGER_ENGINE) {
+        const result = await runTriggerEngineForAll();
+        if (result.fired > 0) {
+          console.log(`[worker:cognitive] trigger_engine: scanned=${result.scanned} fired=${result.fired}`);
+        }
+        return result;
+      }
+      return { skipped: true };
+    },
+    { connection: redis, concurrency: 2 },
+  );
+  cognitiveWorker.on("failed", (job, err) => {
+    console.warn(`[worker:cognitive] ${job?.id} falhou:`, err.message);
+  });
+
   const memoryWorker = new Worker(
     "memory",
     async (job: Job) => {
-      // Extração de memória ainda roda inline em ai.service via fire-and-forget.
-      // Quando for ficar pesada (>10k memórias), migra pra cá.
       return { skipped: true, jobName: job.name };
     },
     { connection: redis, concurrency: 2 },
   );
 
-  _workers = [automationWorker, alertWorker, memoryWorker];
-  console.log("◉ BullMQ workers ativos: automation, alert, memory");
+  _workers = [automationWorker, alertWorker, cognitiveWorker, memoryWorker];
+  console.log("BullMQ workers ativos: automation, alert, cognitive, memory");
 }
 
 export async function stopWorkers(): Promise<void> {

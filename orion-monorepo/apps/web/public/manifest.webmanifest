@@ -1,0 +1,59 @@
+{
+  "name": "O.R.I.O.N — Assistente Autonomo",
+  "short_name": "ORION",
+  "description": "Omni-Responsive Intelligent Operating Nexus. Seu assistente de vida autonomo com IA.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#030509",
+  "theme_color": "#00D4FF",
+  "orientation": "any",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/orion.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/orion.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities", "lifestyle"],
+  "shortcuts": [
+    {
+      "name": "Chat com ORION",
+      "short_name": "Chat",
+      "url": "/?tab=chat",
+      "description": "Abrir o chat do assistente"
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Painel",
+      "url": "/?tab=dash",
+      "description": "Ver seu momentum e resumo do dia"
+    },
+    {
+      "name": "Decision Inbox",
+      "short_name": "Decisoes",
+      "url": "/decisions",
+      "description": "Aprovar ou rejeitar acoes pendentes"
+    },
+    {
+      "name": "Habitos",
+      "short_name": "Habitos",
+      "url": "/m/habits",
+      "description": "Registrar e acompanhar habitos"
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
+}

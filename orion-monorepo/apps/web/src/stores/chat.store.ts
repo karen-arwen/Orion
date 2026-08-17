@@ -2,14 +2,22 @@ import { create } from "zustand";
 import type { ChatMessage, UserProfile } from "@orion/types";
 import { api, ApiClientError, streamChat } from "../lib/api.js";
 
+// Ferramentas ativas que o ORION está executando agora
+export interface ActiveTool {
+  name: string;
+  status: "running" | "done" | "error";
+}
+
 interface ChatStore {
   messages: ChatMessage[];
   conversationId: string | null;
   input: string;
   loading: boolean;
+  activeTools: ActiveTool[];  // tools em execução no momento
   setInput: (v: string) => void;
   bootstrapWelcome: (profile: UserProfile) => void;
   send: (override?: string) => Promise<void>;
+  loadConversation: (id: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -20,6 +28,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   conversationId: null,
   input: "",
   loading: false,
+  activeTools: [],
 
   setInput: (v) => set({ input: v }),
 
@@ -61,9 +70,9 @@ O que fazemos primeiro?`,
       messages: [...s.messages, userMsg, placeholder],
       input: "",
       loading: true,
+      activeTools: [],
     }));
 
-    // ── 1ª tentativa: STREAMING ────────────────────────────────
     let streamedText = "";
     let needsFallback = false;
     let streamError: string | null = null;
@@ -74,6 +83,7 @@ O que fazemos primeiro?`,
         { message: text, conversationId },
         {
           onMeta: (cid) => set({ conversationId: cid }),
+
           onText: (chunk) => {
             streamedText += chunk;
             set((s) => ({
@@ -82,6 +92,26 @@ O que fazemos primeiro?`,
               ),
             }));
           },
+
+          // ORION começou a executar ferramentas — mostra indicadores
+          onToolStart: (tools) => {
+            set({
+              activeTools: tools.map((name) => ({ name, status: "running" as const })),
+            });
+          },
+
+          // Ferramentas concluídas — atualiza status
+          onToolDone: (results) => {
+            set({
+              activeTools: results.map((r) => ({
+                name: r.name,
+                status: r.ok ? ("done" as const) : ("error" as const),
+              })),
+            });
+            // Limpa após 2s para não poluir a UI
+            setTimeout(() => set({ activeTools: [] }), 2000);
+          },
+
           onFallback: () => {
             needsFallback = true;
           },
@@ -94,7 +124,7 @@ O que fazemos primeiro?`,
       streamError = err instanceof Error ? err.message : String(err);
     }
 
-    // ── 2ª tentativa: se stream sinalizou tool_use OU falhou sem nada streamado ──
+    // Fallback para non-streaming se necessário (compatibilidade)
     if (needsFallback || (streamError && !streamedText)) {
       try {
         const conversationId = get().conversationId ?? undefined;
@@ -105,16 +135,19 @@ O que fazemos primeiro?`,
           ),
           conversationId: response.conversationId,
           loading: false,
+          activeTools: [],
         }));
       } catch (err) {
-        const msg = err instanceof ApiClientError ? err.message : "Falha na comunicação com o núcleo.";
+        const msg =
+          err instanceof ApiClientError
+            ? `${err.code}: ${err.message}`
+            : "Falha na comunicacao com o nucleo.";
         set((s) => ({
           messages: s.messages.map((m) =>
-            m.id === placeholderId
-              ? { ...m, content: `◌ ${msg}`, loading: false }
-              : m,
+            m.id === placeholderId ? { ...m, content: `◌ ${msg}`, loading: false } : m,
           ),
           loading: false,
+          activeTools: [],
         }));
       } finally {
         inFlight = false;
@@ -122,7 +155,6 @@ O que fazemos primeiro?`,
       return;
     }
 
-    // ── Sucesso do stream: tira o flag loading ────────────────────
     set((s) => ({
       messages: s.messages.map((m) =>
         m.id === placeholderId
@@ -130,9 +162,24 @@ O que fazemos primeiro?`,
           : m,
       ),
       loading: false,
+      activeTools: [],
     }));
     inFlight = false;
   },
 
-  reset: () => set({ messages: [], conversationId: null, input: "", loading: false }),
+  loadConversation: async (id) => {
+    if (!id) { get().reset(); return; }
+    try {
+      const data = await api.getChatHistory(id);
+      if (!data?.messages) return;
+      const msgs: ChatMessage[] = data.messages.map((m: { id: string; role: string; content: string }) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+      set({ messages: msgs, conversationId: id, activeTools: [] });
+    } catch { /* silent */ }
+  },
+
+  reset: () => set({ messages: [], conversationId: null, input: "", loading: false, activeTools: [] }),
 }));

@@ -1,19 +1,30 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
-import { gmailList, type GmailMessageSummary } from "../integrations/google-api.js";
+import {
+  gmailList,
+  gmailRead,
+  gmailReply,
+  gmailDraft,
+  gmailArchive,
+  gmailMarkRead,
+  type GmailMessageSummary,
+} from "../integrations/google-api.js";
 import { tryEnsureFreshAccessToken } from "../integrations/token-manager.js";
+import { createTask } from "./life.service.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    COMMS — Módulo de comunicação unificada.
 
-   Hoje cobre Gmail. WhatsApp e Slack ficam pra Fase 2/3 (precisam de
-   provedores específicos). A camada é dimensionada pra acomodar mais.
-
    Funcionalidades:
-   - getInbox: lista emails com classificação de urgência
-   - summarizeInbox: resumo executivo
-   - classify: IA classifica um email em (urgente/relevante/ruído)
+   - getClassifiedInbox: inbox com urgência IA
+   - summarizeInbox: resumo executivo IA
+   - readEmail: conteúdo completo de um email
+   - draftReply: Claude gera rascunho de resposta
+   - sendReply: envia resposta real via Gmail
+   - archiveEmail: arquiva (remove do INBOX)
+   - snoozeEmail: agenda reaparecimento no banco (local)
+   - createTaskFromEmail: cria Task no Life OS
 ═══════════════════════════════════════════════════════════════════ */
 
 const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
@@ -25,38 +36,53 @@ export interface ClassifiedEmail extends GmailMessageSummary {
   reason: string;
 }
 
-async function getGmailToken(userId: string): Promise<string | null> {
+export interface SnoozedEmail {
+  id: string;
+  userId: string;
+  emailId: string;
+  emailSubject: string;
+  emailFrom: string;
+  snoozeUntil: string;
+  createdAt: string;
+}
+
+async function getGmailToken(userId: string): Promise<string> {
   const integ = await prisma.integration.findFirst({
     where: { userId, provider: "gmail", status: "connected" },
   });
-  if (!integ) return null;
-  return tryEnsureFreshAccessToken(integ);
+  if (!integ) throw new Error("Gmail não conectado. Conecte em Integrações.");
+  const token = await tryEnsureFreshAccessToken(integ);
+  if (!token) throw new Error("Token Gmail expirado. Reconecte em Integrações.");
+  return token;
 }
 
 /** Retorna inbox classificada por urgência. */
-export async function getClassifiedInbox(userId: string, opts: { max?: number } = {}): Promise<ClassifiedEmail[]> {
+export async function getClassifiedInbox(
+  userId: string,
+  opts: { max?: number; filter?: "all" | "unread" | "starred" } = {},
+): Promise<ClassifiedEmail[]> {
   const token = await getGmailToken(userId);
-  if (!token) throw new Error("Gmail não conectado");
 
-  const raw = await gmailList(token, { query: "newer_than:3d", maxResults: opts.max ?? 15 });
+  const queryMap: Record<string, string> = {
+    unread: "is:unread newer_than:3d",
+    starred: "is:starred",
+    all: "newer_than:3d",
+  };
+  const q = queryMap[opts.filter ?? "all"] ?? "newer_than:3d";
+
+  const raw = await gmailList(token, { query: q, maxResults: opts.max ?? 20 });
   if (raw.length === 0) return [];
 
-  // Classifica em lote — uma chamada Claude pra todos
-  const numbered = raw.map((m, i) => `${i + 1}. De: ${m.from}\n   Assunto: ${m.subject}\n   Snippet: ${m.snippet}`).join("\n\n");
+  const numbered = raw
+    .map((m, i) => `${i + 1}. De: ${m.from}\n   Assunto: ${m.subject}\n   Snippet: ${m.snippet}`)
+    .join("\n\n");
 
   const response = await anthropic.messages.create({
-    model: env.ANTHROPIC_MODEL,
-    max_tokens: 800,
-    temperature: 0.2,
-    system: `Você é o classificador de emails do O.R.I.O.N.
-
-Para cada email, escolha:
-- "urgent": exige ação rápida (segurança, pagamento, deadline, oportunidade tempo-sensível)
-- "relevant": importa mas pode esperar (trabalho, contato pessoal genuíno, oportunidade calma)
-- "noise": newsletter, marketing, promocional, automático sem urgência
-
-Devolva APENAS JSON, sem markdown, no formato:
-[{"i": 1, "urgency": "urgent|relevant|noise", "reason": "frase curta"}, ...]`,
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 900,
+    temperature: 0.1,
+    system: `Classifique emails como urgente/relevant/noise. JSON puro:
+[{"i":1,"urgency":"urgent|relevant|noise","reason":"frase curta em pt-BR"}]`,
     messages: [{ role: "user", content: numbered }],
   });
 
@@ -70,31 +96,144 @@ Devolva APENAS JSON, sem markdown, no formato:
     .trim();
 
   let parsed: Array<{ i: number; urgency: Urgency; reason: string }> = [];
-  try {
-    parsed = JSON.parse(text) as typeof parsed;
-  } catch {
-    // se a classificação falhar, devolve tudo como "relevant"
-    return raw.map((m) => ({ ...m, urgency: "relevant", reason: "(classificação indisponível)" }));
+  try { parsed = JSON.parse(text) as typeof parsed; } catch {
+    return raw.map((m) => ({ ...m, urgency: "relevant" as Urgency, reason: "" }));
   }
 
   return raw.map((m, idx) => {
     const c = parsed.find((p) => p.i === idx + 1);
-    return {
-      ...m,
-      urgency: c?.urgency ?? "relevant",
-      reason: c?.reason ?? "",
-    };
+    return { ...m, urgency: c?.urgency ?? "relevant", reason: c?.reason ?? "" };
   });
 }
 
-/** Resumo executivo em texto da caixa. */
+/** Lê corpo completo de um email. */
+export async function readEmail(
+  userId: string,
+  emailId: string,
+): Promise<{ subject: string; from: string; date: string; body: string }> {
+  const token = await getGmailToken(userId);
+  await gmailMarkRead(token, emailId).catch(() => void 0);
+  return gmailRead(token, emailId);
+}
+
+/** Claude gera rascunho de resposta para o email. */
+export async function draftReply(
+  userId: string,
+  emailId: string,
+  instructions?: string,
+): Promise<{ draft: string }> {
+  const token = await getGmailToken(userId);
+  const email = await gmailRead(token, emailId);
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  const fromName = user?.name ?? "usuário";
+
+  const response = await anthropic.messages.create({
+    model: env.ANTHROPIC_MODEL,
+    max_tokens: 600,
+    system: `Você é o O.R.I.O.N. rascunhando uma resposta de email para ${fromName}.
+Tom: profissional mas humano. Resposta concisa. Em pt-BR.
+${instructions ? `Instrução extra: ${instructions}` : ""}
+Devolva APENAS o corpo da resposta — sem assunto, sem saudação genérica no início.`,
+    messages: [
+      {
+        role: "user",
+        content: `Email recebido:\nDe: ${email.from}\nAssunto: ${email.subject}\n\n${email.body}`,
+      },
+    ],
+  });
+
+  const draft = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("")
+    .trim();
+
+  return { draft };
+}
+
+/** Envia resposta real. Usuário deve ter confirmado no frontend. */
+export async function sendReply(
+  userId: string,
+  opts: { emailId: string; threadId: string; to: string; subject: string; body: string },
+): Promise<{ id: string; threadId: string }> {
+  const token = await getGmailToken(userId);
+  return gmailReply(token, {
+    threadId: opts.threadId,
+    messageId: opts.emailId,
+    to: opts.to,
+    subject: opts.subject,
+    body: opts.body,
+  });
+}
+
+/** Arquiva email (remove do INBOX). */
+export async function archiveEmail(userId: string, emailId: string): Promise<void> {
+  const token = await getGmailToken(userId);
+  await gmailArchive(token, emailId);
+}
+
+/** Snooze: guarda no banco pra reaparecer depois (sem mudar labels no Gmail). */
+export async function snoozeEmail(
+  userId: string,
+  opts: { emailId: string; subject: string; from: string; snoozeUntil: Date },
+): Promise<void> {
+  // Usa a tabela InboxItem ou cria registro genérico num campo JSON de UserPattern
+  // Por ora, armazenamos em InboxItem com status especial (reusing existing infrastructure)
+  // Persist snooze as a UserPattern entry (survives across sessions)
+  const snoozeKey = `email_snooze_${opts.emailId}`;
+  await prisma.userPattern.upsert({
+    where: { userId_patternType: { userId, patternType: snoozeKey } },
+    create: {
+      userId,
+      patternType: snoozeKey,
+      data: {
+        emailId: opts.emailId,
+        subject: opts.subject,
+        from: opts.from,
+        snoozeUntil: opts.snoozeUntil.toISOString(),
+      },
+      confidence: 1.0,
+    },
+    update: {
+      data: {
+        emailId: opts.emailId,
+        subject: opts.subject,
+        from: opts.from,
+        snoozeUntil: opts.snoozeUntil.toISOString(),
+      },
+    },
+  });
+}
+
+/** Cria tarefa no Life OS a partir de um email. */
+export async function createTaskFromEmail(
+  userId: string,
+  emailId: string,
+  opts?: { customTitle?: string; dueAt?: string },
+): Promise<unknown> {
+  const token = await getGmailToken(userId);
+  const email = await gmailRead(token, emailId);
+
+  const title = opts?.customTitle ?? `Email: ${email.subject}`;
+
+  return createTask(userId, {
+    title,
+    notes: `De: ${email.from}\n\n${email.body.slice(0, 500)}`,
+    priority: 2,
+    energy: 2,
+    dueAt: opts?.dueAt,
+  });
+}
+
+/** Resumo executivo da caixa. */
 export async function summarizeInbox(userId: string): Promise<string> {
   const list = await getClassifiedInbox(userId, { max: 20 });
   if (list.length === 0) return "Caixa vazia nos últimos 3 dias.";
 
-  const urgent = list.filter((m) => m.urgency === "urgent").length;
+  const urgent   = list.filter((m) => m.urgency === "urgent").length;
   const relevant = list.filter((m) => m.urgency === "relevant").length;
-  const noise = list.filter((m) => m.urgency === "noise").length;
+  const noise    = list.filter((m) => m.urgency === "noise").length;
 
   const briefingInput = list
     .slice(0, 12)
@@ -104,14 +243,14 @@ export async function summarizeInbox(userId: string): Promise<string> {
   const response = await anthropic.messages.create({
     model: env.ANTHROPIC_MODEL,
     max_tokens: 400,
-    temperature: 0.6,
-    system: `Você é o O.R.I.O.N. resumindo a caixa de entrada do usuário.
-Tom sofisticado, conciso. 3-5 linhas. Cite por nome só o que merece atenção real.
-Termine com pergunta de ação ("Quer que eu rascunhe respostas pros urgentes?").`,
+    temperature: 0.5,
+    system: `Você é o O.R.I.O.N. resumindo a caixa de entrada.
+Tom sofisticado, conciso. 3-4 linhas. Cite só o que merece atenção.
+Termine com uma ação sugerida.`,
     messages: [
       {
         role: "user",
-        content: `Estatística: ${urgent} urgentes, ${relevant} relevantes, ${noise} ruído.\n\nDetalhes:\n${briefingInput}`,
+        content: `${urgent} urgentes, ${relevant} relevantes, ${noise} ruído.\n\n${briefingInput}`,
       },
     ],
   });

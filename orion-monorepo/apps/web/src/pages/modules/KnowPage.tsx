@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 import type { LessonMaterial, LessonSession } from "@orion/types";
 import { ModuleShell } from "../../components/layout/ModuleShell.js";
+import { ModuleChat } from "../../components/panels/ModuleChat.js";
 import {
   useAskTutor,
   useContinueLesson,
@@ -10,7 +11,7 @@ import {
 } from "../../hooks/modules/useKnow.js";
 
 type Depth = "rapido" | "padrao" | "fundo";
-type Mode = "ask" | "lessons";
+type Mode = "ask" | "lessons" | "notebooks";
 
 interface QA {
   q: string;
@@ -35,7 +36,7 @@ export function KnowPage(): JSX.Element {
       <div style={{ maxWidth: 920, margin: "0 auto" }}>
         {/* Tab switcher */}
         <div style={{ display: "flex", gap: 6, marginBottom: 24 }}>
-          {(["ask", "lessons"] as const).map((m) => (
+          {(["ask", "lessons", "notebooks"] as const).map((m) => (
             <button
               key={m}
               onClick={() => {
@@ -53,7 +54,7 @@ export function KnowPage(): JSX.Element {
                 cursor: "pointer",
               }}
             >
-              {m === "ask" ? "◈ PERGUNTAR" : "▤ MINHAS AULAS"}
+              {m === "ask" ? "◈ PERGUNTAR" : m === "lessons" ? "▤ MINHAS AULAS" : "\u{1F4D3} CADERNOS"}
             </button>
           ))}
         </div>
@@ -62,7 +63,15 @@ export function KnowPage(): JSX.Element {
         {mode === "lessons" && (
           <LessonsMode activeId={activeLessonId} onSelect={setActiveLessonId} />
         )}
+        {mode === "notebooks" && <NotebooksMode onOpenLesson={(id) => { setActiveLessonId(id); setMode("lessons"); }} />}
       </div>
+      <ModuleChat
+        module="know"
+        label="CONHECIMENTO"
+        color={PRIMARY}
+        welcome="Posso criar aulas estruturadas sobre qualquer assunto, explicar conceitos complexos e montar planos de estudo personalizados."
+        suggestions={["Me ensina sobre X", "Plano de estudo", "Resumo de conceito", "Quiz rapido"]}
+      />
     </ModuleShell>
   );
 }
@@ -260,7 +269,7 @@ function LessonsMode({
           className="hud-label"
           style={{ color: "rgba(255,255,255,0.25)", textAlign: "center", padding: 40 }}
         >
-          Nenhuma aula ainda. Vá na aba PERGUNTAR e peça "monta uma aula sobre X".
+          Nenhuma aula ainda.\nPergunte qualquer coisa na aba PERGUNTAR — ex: "monta uma aula sobre marketing digital" ou "me ensina React hooks".
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -575,6 +584,69 @@ function LessonMaterialView({ material }: { material: LessonMaterial }): JSX.Ele
             ))}
           </ul>
         </Block>
+      )}
+    </div>
+  );
+}
+
+
+function NotebooksMode({ onOpenLesson }: { onOpenLesson: (id: string) => void }): JSX.Element {
+  const { data: lessons } = useLessons();
+  const grouped = new Map<string, Array<{ id: string; topic: string; level: string; tags: string[]; createdAt: string }>>();
+  for (const l of lessons ?? []) {
+    const tag = l.tags[0] || "geral";
+    if (!grouped.has(tag)) grouped.set(tag, []);
+    grouped.get(tag)!.push(l);
+  }
+  const notebooks = Array.from(grouped.entries()).sort((a, b) => b[1].length - a[1].length);
+
+  const STUDY_SUGGESTIONS = [
+    { topic: "Marketing Digital pra UGC", icon: "\u{1F4F1}", color: "#EC4899" },
+    { topic: "Fotografia de produto", icon: "\u{1F4F8}", color: "#F59E0B" },
+    { topic: "Edição de vídeo pra Reels", icon: "\u{1F3AC}", color: "#7C3AED" },
+    { topic: "Gestão financeira pessoal", icon: "\u{1F4B0}", color: "#10B981" },
+    { topic: "Inglês para negócios", icon: "\u{1F30D}", color: "#3B82F6" },
+    { topic: "Design com Canva", icon: "\u{1F3A8}", color: "#00D4FF" },
+  ];
+
+  return (
+    <div>
+      {/* Study suggestions */}
+      <div style={{ padding: 16, marginBottom: 20, background: "linear-gradient(135deg, rgba(0,212,255,0.05), transparent)", border: "1px solid rgba(0,212,255,0.15)", borderRadius: 10 }}>
+        <div className="hud-label" style={{ fontSize: 10, color: "#00D4FF", letterSpacing: "0.12em", marginBottom: 12 }}>{"\u{1F9E0}"} SUGESTÕES DE ESTUDO</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {STUDY_SUGGESTIONS.map((s) => (
+            <button key={s.topic} style={{ padding: "8px 12px", fontSize: 11, background: `${s.color}10`, border: `1px solid ${s.color}25`, color: s.color, borderRadius: 6, cursor: "pointer", fontFamily: "'Rajdhani', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>{s.icon} {s.topic}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginTop: 8, fontFamily: "'Share Tech Mono', monospace" }}>O ORION sugere com base no seu perfil. Clique pra iniciar uma aula.</div>
+      </div>
+
+      {notebooks.length === 0 ? (
+        <div style={{ padding: 40, textAlign: "center", background: "rgba(255,255,255,0.015)", border: "1px dashed rgba(0,212,255,0.2)", borderRadius: 10 }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>{"\u{1F4D3}"}</div>
+          <div style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", marginBottom: 8 }}>Seus cadernos aparecem aqui</div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)" }}>Cada aula que você pede é agrupada por tema. Peça aulas na aba PERGUNTAR.</div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+          {notebooks.map(([tag, items]) => (
+            <div key={tag} style={{ padding: 16, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(0,212,255,0.15)", borderRadius: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div className="hud-label" style={{ fontSize: 11, color: "#00D4FF", letterSpacing: "0.1em" }}>{"\u{1F4D3}"} {tag.toUpperCase()}</div>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", fontFamily: "'Share Tech Mono', monospace" }}>{(items ?? []).length} {(items ?? []).length === 1 ? "aula" : "aulas"}</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {(items ?? []).map((l) => (
+                  <button key={l.id} onClick={() => onOpenLesson(l.id)} style={{ padding: "8px 10px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(0,212,255,0.1)", borderRadius: 6, textAlign: "left" as const, cursor: "pointer", color: "rgba(255,255,255,0.8)", fontSize: 12 }}>
+                    {l.topic}
+                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: "'Share Tech Mono', monospace", marginTop: 2 }}>{l.level} · {new Date(l.createdAt).toLocaleDateString("pt-BR")}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

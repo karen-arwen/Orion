@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { NewsItem, NewsSearchResult } from "@orion/types";
+import type { JobRadarInput, JobRadarResult, NewsItem, NewsSearchResult } from "@orion/types";
 import { api } from "../../lib/api.js";
 
 export function useSavedNews(): ReturnType<typeof useQuery<NewsItem[]>> {
@@ -15,6 +15,12 @@ export function useSearchNews(): ReturnType<
 > {
   return useMutation({
     mutationFn: ({ query, freshness }) => api.news.search(query, freshness ?? "pw"),
+  });
+}
+
+export function useJobRadar(): ReturnType<typeof useMutation<JobRadarResult[], Error, JobRadarInput>> {
+  return useMutation({
+    mutationFn: (input: JobRadarInput) => api.news.jobs(input),
   });
 }
 

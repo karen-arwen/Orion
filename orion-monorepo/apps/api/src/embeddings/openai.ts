@@ -14,15 +14,33 @@ import { env } from "../config/env.js";
 const ENDPOINT = "https://api.openai.com/v1/embeddings";
 const MODEL = "text-embedding-3-small";
 
+// Circuit breaker — evita spam de requisições após cota esgotada.
+// Após um 429, desabilita embeddings por COOLDOWN_MS (1 hora).
+const COOLDOWN_MS = 60 * 60 * 1000;
+let quotaExhaustedUntil = 0;
+
+function isQuotaExhausted(): boolean {
+  return Date.now() < quotaExhaustedUntil;
+}
+
+function markQuotaExhausted(): void {
+  if (!isQuotaExhausted()) {
+    const until = new Date(Date.now() + COOLDOWN_MS).toLocaleTimeString("pt-BR");
+    console.warn(`[embeddings] cota OpenAI esgotada — embeddings desabilitados até ${until}`);
+  }
+  quotaExhaustedUntil = Date.now() + COOLDOWN_MS;
+}
+
 interface EmbeddingResponse {
   data: Array<{ embedding: number[]; index: number }>;
   model: string;
   usage: { prompt_tokens: number; total_tokens: number };
 }
 
-/** Gera embedding pra um texto. Retorna null se OpenAI não configurada. */
+/** Gera embedding pra um texto. Retorna null se OpenAI não configurada ou cota esgotada. */
 export async function embed(text: string): Promise<number[] | null> {
   if (!env.OPENAI_API_KEY) return null;
+  if (isQuotaExhausted()) return null;
 
   // Trunca pra não estourar limite do modelo (8191 tokens ≈ 30k chars)
   const input = text.slice(0, 30_000);
@@ -38,7 +56,11 @@ export async function embed(text: string): Promise<number[] | null> {
     });
 
     if (!res.ok) {
-      console.warn(`[embeddings] OpenAI ${res.status}: ${await res.text()}`);
+      if (res.status === 429) {
+        markQuotaExhausted();
+      } else {
+        console.warn(`[embeddings] OpenAI ${res.status}`);
+      }
       return null;
     }
 
@@ -53,6 +75,7 @@ export async function embed(text: string): Promise<number[] | null> {
 /** Gera embeddings em batch (mais eficiente que loop). */
 export async function embedBatch(texts: string[]): Promise<Array<number[] | null>> {
   if (!env.OPENAI_API_KEY || texts.length === 0) return texts.map(() => null);
+  if (isQuotaExhausted()) return texts.map(() => null);
 
   const inputs = texts.map((t) => t.slice(0, 30_000));
 
@@ -66,7 +89,8 @@ export async function embedBatch(texts: string[]): Promise<Array<number[] | null
       body: JSON.stringify({ model: MODEL, input: inputs }),
     });
 
-    if (!res.ok) return texts.map(() => null);
+    if (!res.ok) {
+         }
 
     const json = (await res.json()) as EmbeddingResponse;
     const byIndex = new Map(json.data.map((d) => [d.index, d.embedding] as const));
@@ -88,6 +112,11 @@ export function cosineSimilarity(a: number[], b: number[]): number {
     dot += ai * bi;
     normA += ai * ai;
     normB += bi * bi;
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+;
   }
   if (normA === 0 || normB === 0) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));

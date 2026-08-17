@@ -1,12 +1,12 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { ApiError } from "../../middleware/error.js";
-import { listSaved, markRead, removeItem, saveItem, searchNews } from "../../modules/news.service.js";
+import { listSaved, markRead, removeItem, saveItem, searchJobs, searchNews } from "../../modules/news.service.js";
 
 export const newsRouter: Router = Router();
 
 const searchSchema = z.object({
-  query: z.string().min(1).max(200),
+  query: z.string().min(1).max(1200),
   freshness: z.enum(["pd", "pw", "pm"]).default("pw"),
 });
 
@@ -16,6 +16,26 @@ newsRouter.post("/search", async (req: Request, res: Response, next: NextFunctio
     const { query, freshness } = searchSchema.parse(req.body);
     const results = await searchNews(query, freshness);
     res.json({ ok: true, data: results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const jobsSchema = z.object({
+  role: z.string().min(2).max(80),
+  stack: z.array(z.string().min(1).max(30)).max(8).default([]),
+  seniority: z.enum(["junior", "pleno", "senior", "lead", "any"]).default("any"),
+  modality: z.enum(["remote", "hybrid", "onsite", "any"]).default("remote"),
+  location: z.string().min(2).max(80).default("Brasil"),
+  includeInternational: z.boolean().default(false),
+  excludeTerms: z.array(z.string().min(1).max(40)).max(12).optional(),
+});
+
+newsRouter.post("/jobs", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) throw new ApiError(401, "UNAUTHENTICATED", "Sessão necessária.");
+    const body = jobsSchema.parse(req.body);
+    res.json({ ok: true, data: await searchJobs(body) });
   } catch (err) {
     next(err);
   }

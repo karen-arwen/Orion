@@ -1,10 +1,11 @@
 import { create } from "zustand";
-import type { ProactiveAlert } from "@orion/types";
+import type { AlertScanResult, ProactiveAlert } from "@orion/types";
 import { api } from "../lib/api.js";
 
 interface AlertsStore {
   alerts: ProactiveAlert[];
   fetch: () => Promise<void>;
+  scan: () => Promise<AlertScanResult | null>;
   approve: (alert: ProactiveAlert) => void;
   dismiss: (alert: ProactiveAlert) => void;
 }
@@ -18,6 +19,17 @@ export const useAlertsStore = create<AlertsStore>((set, get) => ({
       set({ alerts: list });
     } catch {
       // Sem backend / sem auth — segue silencioso
+    }
+  },
+
+  scan: async () => {
+    try {
+      const result = await api.scanAlerts();
+      const list = await api.listAlerts();
+      set({ alerts: list });
+      return result;
+    } catch {
+      return null;
     }
   },
 

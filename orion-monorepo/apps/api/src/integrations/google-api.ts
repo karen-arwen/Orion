@@ -119,11 +119,16 @@ export async function gmailRead(
   accessToken: string,
   messageId: string,
 ): Promise<{ subject: string; from: string; date: string; body: string }> {
+  interface GmailPart {
+    mimeType?: string;
+    body?: { data?: string };
+    parts?: GmailPart[];
+  }
   interface FullMessage extends GmailRawMessage {
     payload?: {
       headers?: Array<{ name: string; value: string }>;
       body?: { data?: string };
-      parts?: Array<{ mimeType?: string; body?: { data?: string }; parts?: FullMessage["payload"]["parts"] }>;
+      parts?: GmailPart[];
     };
   }
   const msg = await request<FullMessage>(`${GMAIL}/messages/${messageId}`, {
@@ -132,7 +137,7 @@ export async function gmailRead(
   });
 
   // Extrai o body — Gmail aninha parts; pegamos o text/plain mais externo
-  const findText = (parts?: FullMessage["payload"]["parts"]): string => {
+  const findText = (parts?: GmailPart[]): string => {
     if (!parts) return "";
     for (const p of parts) {
       if (p.mimeType === "text/plain" && p.body?.data) {
@@ -226,6 +231,30 @@ export async function gmailReply(
     body: { raw: encoded, threadId: opts.threadId },
   });
   return result;
+}
+
+
+/** Modifica labels de uma mensagem (ex: arquivar = remover INBOX). */
+export async function gmailModifyLabels(
+  accessToken: string,
+  messageId: string,
+  opts: { addLabelIds?: string[]; removeLabelIds?: string[] },
+): Promise<void> {
+  await request<Record<string, unknown>>(`${GMAIL}/messages/${messageId}/modify`, {
+    accessToken,
+    method: "POST",
+    body: opts,
+  });
+}
+
+/** Arquiva uma mensagem (remove do INBOX sem excluir). */
+export async function gmailArchive(accessToken: string, messageId: string): Promise<void> {
+  await gmailModifyLabels(accessToken, messageId, { removeLabelIds: ["INBOX"] });
+}
+
+/** Marca como lido. */
+export async function gmailMarkRead(accessToken: string, messageId: string): Promise<void> {
+  await gmailModifyLabels(accessToken, messageId, { removeLabelIds: ["UNREAD"] });
 }
 
 // ── CALENDAR ───────────────────────────────────────────────────────

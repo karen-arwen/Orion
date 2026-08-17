@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { ApiError } from "../middleware/error.js";
 import { ALL_MODULES } from "../modules/catalog.js";
@@ -56,8 +57,13 @@ modulesRouter.patch("/:id/config", async (req: Request, res: Response, next: Nex
     const config = req.body as Record<string, unknown>;
     const um = await prisma.userModule.upsert({
       where: { userId_moduleId: { userId: req.user.id, moduleId } },
-      create: { userId: req.user.id, moduleId, enabled: false, config },
-      update: { config },
+      create: {
+        userId: req.user.id,
+        moduleId,
+        enabled: false,
+        config: config as Prisma.InputJsonValue,
+      },
+      update: { config: config as Prisma.InputJsonValue },
     });
     res.json({ ok: true, data: um });
   } catch (err) {

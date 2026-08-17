@@ -10,26 +10,34 @@ import { prisma } from "../db/prisma.js";
 
 const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
-const IDEA_GEN_SYSTEM = `Você é o O.R.I.O.N. em modo CONTENT STRATEGIST.
+const IDEA_GEN_SYSTEM = `Voce e o O.R.I.O.N. em modo CRIACAO/PROJETOS.
 
-Gere ideias de conteúdo concretas, ESPECÍFICAS e produzíveis pro usuário.
-NÃO genéricas tipo "fale sobre produtividade". Cada ideia deve ter um
-ângulo único, um gancho claro, e formato adequado.
+O usuario quer gerar IDEIAS e PROJETOS. Isso pode ser:
+- Conteudo (reels, posts, videos) SE o nicho for criacao de conteudo
+- Projetos profissionais (Salesforce, desenvolvimento, consultoria) SE for dev/tech
+- Projetos criativos (arte, musica, design) SE for criativo
+- Qualquer outro tipo de projeto baseado no nicho informado
+
+REGRA ABSOLUTA: leia o nicho do usuario e gere ideias EXCLUSIVAMENTE nesse dominio.
+Se o nicho e "salesforce" ou "desenvolvimento", gere projetos de Salesforce/dev.
+Se e "ugc" ou "conteudo", gere ideias de conteudo.
+NUNCA misture nichos. Se o usuario fala de Salesforce, NAO sugira UGC, programacao generica, I.A., ou rotina dev junior.
 
 Devolva APENAS JSON puro, sem markdown:
 [
   {
-    "title": "headline forte (máx 80 chars)",
-    "body": "tese + estrutura sugerida (3-5 linhas)",
-    "format": "reels | carrossel | estatico | stories | thread | blog | video",
+    "title": "titulo do projeto/ideia (max 80 chars)",
+    "body": "descricao + estrutura sugerida (3-5 linhas)",
+    "format": "projeto | app | consultoria | automacao | curso | reels | tiktok | carrossel | tutorial | blog | video",
     "tags": ["tag1", "tag2"]
   }
 ]
 
 REGRAS:
-- 5 ideias, formatos VARIADOS (não 5 reels).
-- Use info do usuário (nicho, projetos, audiência) pra personalizar.
-- Hook na primeira linha do body. Estrutura curta no resto.`;
+- 5 ideias, tipos VARIADOS.
+- Cada ideia deve ser DIRETAMENTE relacionada ao nicho informado.
+- Inclua detalhes concretos (tecnologias, ferramentas, numeros).
+- Se nao tem nicho especifico, pergunte antes de gerar.`;
 
 export async function listIdeas(userId: string): Promise<unknown[]> {
   return prisma.contentIdea.findMany({

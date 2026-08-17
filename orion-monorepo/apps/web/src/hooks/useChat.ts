@@ -1,3 +1,4 @@
+import type { ChatMessage } from "@orion/types";
 import { useChatStore } from "../stores/chat.store.js";
 
 /**
@@ -5,16 +6,22 @@ import { useChatStore } from "../stores/chat.store.js";
  * Componentes não devem tocar no store diretamente — usem este hook.
  */
 export function useChat(): {
-  messages: ReturnType<typeof useChatStore>["messages"];
+  messages: ChatMessage[];
   input: string;
   loading: boolean;
+  conversationId: string | null;
   setInput: (v: string) => void;
   send: (override?: string) => Promise<void>;
+  loadConversation: (id: string) => Promise<void>;
+  reset: () => void;
 } {
   const messages = useChatStore((s) => s.messages);
   const input = useChatStore((s) => s.input);
   const loading = useChatStore((s) => s.loading);
+  const conversationId = useChatStore((s) => s.conversationId);
   const setInput = useChatStore((s) => s.setInput);
   const send = useChatStore((s) => s.send);
-  return { messages, input, loading, setInput, send };
+  const loadConversation = useChatStore((s) => s.loadConversation);
+  const reset = useChatStore((s) => s.reset);
+  return { messages, input, loading, conversationId, setInput, send, loadConversation, reset };
 }

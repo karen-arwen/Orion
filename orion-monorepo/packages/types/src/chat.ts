@@ -40,3 +40,10 @@ export interface ChatResponse {
     result: string;
   }>;
 }
+
+export interface ChatFeedbackInput {
+  message: string;
+  helpful: boolean;
+  reason?: string;
+  conversationId?: string;
+}
